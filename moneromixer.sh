@@ -259,6 +259,25 @@ perform_churning() {
     done
 }
 
+
+# Check if jq is installed.
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Error: 'jq' is not installed."
+    echo "Please install it by running:"
+    echo ""
+    echo "sudo apt-get install jq"
+    exit 1
+fi
+
+# Check if openssl is installed (only if random passwords are used).
+if [ "$USE_RANDOM_PASSWORD" = true ] && ! command -v openssl >/dev/null 2>&1; then
+    echo "Error: 'openssl' is required for generating random passwords but is not installed."
+    echo "Please install it by running:"
+    echo ""
+    echo "sudo apt-get install openssl"
+    exit 1
+fi
+
 # Main workflow:
 
 mkdir -p "$WALLET_DIR"
