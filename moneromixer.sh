@@ -2,8 +2,8 @@
 
 # Monero Mixer
 #
-# A script to perform churning on Monero wallets.  See the README for required dependencies. Uses
-# the Monero wallet RPC to create, restore, and churn wallets. The script can be configured to
+# A script to perform churning on Monero wallets.  See the README for required dependencies.  Uses
+# the Monero wallet RPC to create, restore, and churn wallets.  The script can be configured to
 # generate and record random wallets and save them for future reference or use a pre-determined
 # series of seeds saved to a file.  Seeds are recorded in the same format from which they may be
 # read as in:
@@ -29,11 +29,15 @@ DAEMON_ADDRESS="127.0.0.1:18081"
 # Path to store wallets and seeds.
 WALLET_DIR="./wallets"
 SEED_FILE="./seeds.txt"
-DEFAULT_PASSWORD="0"                       # Set to '0' to prompt for password input.
-USE_RANDOM_PASSWORD=false                  # Set to true to use random passwords.
-USE_SEED_FILE=false                        # Set to true to use seeds from a file.
-GENERATE_QR=false                          # Set to true to generate a QR code for receiving funds to churn.
-DEBUG_MODE=false                           # Set to true to enable debug mode.
+DEFAULT_PASSWORD="0"      # Set to '0' to prompt for password input.
+USE_RANDOM_PASSWORD=false # Set to true to use random passwords.
+USE_SEED_FILE=false       # Set to true to use seeds from a file.  See the top of this script for
+                          # seed file format.
+SAVE_SEEDS_TO_FILE=false  # Set to true to save seeds to a file in cleartext.  WARNING:  If false,
+                          # the only record of these wallets will be in the wallet files created by
+                          # monero-wallet-rpc.  If you lose those files, you will lose their funds.
+GENERATE_QR=false         # Set to true to generate a QR code for receiving funds to churn.
+DEBUG_MODE=false          # Set to true to enable debug mode.
 
 # Churning parameters
 MIN_ROUNDS=5     # [rounds] Minimum number of churning rounds per session.
@@ -43,7 +47,7 @@ MAX_DELAY=3600   # [seconds] Maximum delay between transactions.
 NUM_SESSIONS=3   # [sessions] Number of churning sessions to perform. Set to 0 for infinite.
 
 # Restore height offset when creation height is unknown.
-RESTORE_HEIGHT_OFFSET=1000  # [blocks] Blocks to subtract from current height if unknown.
+RESTORE_HEIGHT_OFFSET=1000  # [blocks] Blocks to subtract from current height if unknown creation_height.
 
 # Generate a random password.
 generate_random_password() {
@@ -54,7 +58,7 @@ generate_random_password() {
 get_current_block_height() {
     local HEIGHT
     if [ "$DEBUG_MODE" = true ]; then
-        HEIGHT=1234567  # Simulated block height in debug mode.
+        HEIGHT=1000000  # Simulated block height in debug mode.
     else
         HEIGHT=$(curl -s -X POST http://$DAEMON_ADDRESS/json_rpc -d '{
             "jsonrpc":"2.0",
@@ -67,16 +71,14 @@ get_current_block_height() {
 
 # Save the seed file.
 save_seed_file() {
-    # Create file if it doesn't exist.
-    if [ ! -f "$SEED_FILE" ]; then
-        touch "$SEED_FILE"
+    if [ "$SAVE_SEEDS_TO_FILE" = true ]; then
+        {
+            echo "mnemonic: $MNEMONIC; password: $PASSWORD; creation_height: $CREATION_HEIGHT"
+        } >> "$SEED_FILE"
+        echo "Seed information appended to $SEED_FILE"
+    else
+        echo "Seed saving is disabled. Seed information will not be saved to a file."
     fi
-
-    # Append seed information to the seed file.
-    {
-        echo "mnemonic: $MNEMONIC; password: $PASSWORD; creation_height: $CREATION_HEIGHT"
-    } >> "$SEED_FILE"
-    echo "Seed information appended to $SEED_FILE"
 }
 
 # Create or restore a wallet.
@@ -257,7 +259,7 @@ perform_churning() {
     for ((i=1; i<=NUM_ROUNDS; i++)); do
         # Get balance and unlock time.
         if [ "$DEBUG_MODE" = true ]; then
-            UNLOCKED_BALANCE=1000000000000  # Simulated unlocked balance (1XMR = 1e12 atomic units).
+            UNLOCKED_BALANCE=1000000000000  # Simulated unlocked balance in atomic units (1 XMR = 1e12 atomic units)
         else
             local BALANCE_INFO
             BALANCE_INFO=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
@@ -336,7 +338,7 @@ get_seed_info() {
 
     # Check if the line contains any semicolons.
     if [[ "$line" == *";"* ]]; then
-        # Parse the seed file entry.  See the top of the script for the expected format.
+        # Parse the seed file entry.
         IFS=';' read -ra PARTS <<< "$line"
         for part in "${PARTS[@]}"; do
             local key
@@ -533,6 +535,33 @@ run_session() {
 
                 # Close next wallet.
                 close_wallet
+
+                # Save the seed of the next wallet to the SEED_FILE if enabled.
+                if [ "$SAVE_SEEDS_TO_FILE" = true ]; then
+                    if [ "$DEBUG_MODE" = true ]; then
+                        MNEMONIC="simulated mnemonic seed words for next wallet"
+                        CREATION_HEIGHT=$(get_current_block_height)
+                        save_seed_file
+                    else
+                        # Open the next wallet to query the seed.
+                        open_wallet
+
+                        # Get the mnemonic seed of the next wallet.
+                        MNEMONIC=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+                            "jsonrpc":"2.0",
+                            "id":"0",
+                            "method":"query_key",
+                            "params":{
+                                "key_type":"mnemonic"
+                            }
+                        }' -H 'Content-Type: application/json' | jq -r '.result.key')
+                        CREATION_HEIGHT=$(get_current_block_height)
+                        save_seed_file
+
+                        # Close the next wallet.
+                        close_wallet
+                    fi
+                fi
             fi
         fi
 
