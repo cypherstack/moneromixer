@@ -29,8 +29,8 @@ WALLET_DIR="./wallets"
 SEED_FILE="./seeds.txt"
 DEFAULT_PASSWORD="0"      # Set to '0' to prompt for password input.
 USE_RANDOM_PASSWORD=false # Set to true to use random passwords.  Requires openssl.
-USE_SEED_FILE=false       # Set to true to use seeds from a file.  See the top of this script for
-                          # seed file format.
+USE_SEED_FILE=false       # Set to true to read seeds from a file.  See the top of this script for
+                          # seed file format.  When false, generates new wallets.
 SAVE_SEEDS_TO_FILE=false  # Set to true to save seeds to a file in cleartext.  WARNING:  If false,
                           # the only record of these wallets will be in the wallet files created by
                           # monero-wallet-rpc.  If you lose those files, you will lose their funds.
