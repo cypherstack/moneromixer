@@ -2,12 +2,10 @@
 
 # Monero Mixer
 #
-# A script to perform churning on Monero wallets.  See the README for required dependencies.  Uses
-# the Monero wallet RPC to create, restore, and churn wallets.  The script can be configured to
-# generate and record random wallets and save them for future reference or use a pre-determined
-# series of seeds saved to a file.  Seeds are recorded in the same format from which they may be
-# read as in:
-#
+# A churning script.  Requires `jq` and optionally `openssl` and/or `qrencode`.  Uses the Monero
+# wallet RPC to create, restore, and churn wallets.  The script can be configured to generate and
+# record random wallets and save them for future reference or use a pre-determined series of seeds
+# saved to a file.  Seeds are recorded in the same format from which they may be read as in:
 # mnemonic: <mnemonic seed words>; [password: <wallet password>;] [creation_height: <block height>]
 #
 # For example:
@@ -21,25 +19,26 @@
 # - Run the script:
 #   ./moneromixer.sh
 
-# Configuration.
+# RPC configuration.
 RPC_PORT=18082
 RPC_HOST="127.0.0.1"
 DAEMON_ADDRESS="127.0.0.1:18081"
 
-# Path to store wallets and seeds.
+# General configuration.
 WALLET_DIR="./wallets"
 SEED_FILE="./seeds.txt"
 DEFAULT_PASSWORD="0"      # Set to '0' to prompt for password input.
-USE_RANDOM_PASSWORD=false # Set to true to use random passwords.
+USE_RANDOM_PASSWORD=false # Set to true to use random passwords.  Requires openssl.
 USE_SEED_FILE=false       # Set to true to use seeds from a file.  See the top of this script for
                           # seed file format.
 SAVE_SEEDS_TO_FILE=false  # Set to true to save seeds to a file in cleartext.  WARNING:  If false,
                           # the only record of these wallets will be in the wallet files created by
                           # monero-wallet-rpc.  If you lose those files, you will lose their funds.
 GENERATE_QR=false         # Set to true to generate a QR code for receiving funds to churn.
+                          # Requires qrencode.
 DEBUG_MODE=false          # Set to true to enable debug mode.
 
-# Churning parameters
+# Churning parameters.
 MIN_ROUNDS=5     # [rounds] Minimum number of churning rounds per session.
 MAX_ROUNDS=50    # [rounds] Maximum number of churning rounds per session.
 MIN_DELAY=1      # [seconds] Minimum delay between transactions.
