@@ -20,18 +20,20 @@
 #   ./moneromixer.sh
 
 # RPC configuration.
-RPC_PORT=18082
 RPC_HOST="127.0.0.1"
+RPC_PORT=18082
 DAEMON_ADDRESS="127.0.0.1:18081"
+RPC_USERNAME="username"
+RPC_PASSWORD="password"
 
 # General configuration.
 WALLET_DIR="./wallets"
 SEED_FILE="./seeds.txt"
-DEFAULT_PASSWORD="0"      # Set to '0' to prompt for password input.
+DEFAULT_PASSWORD="0"      # Default wallet password.  Set to "0" to prompt for password input.
 USE_RANDOM_PASSWORD=false # Set to true to use random passwords.  Requires openssl.
 USE_SEED_FILE=false       # Set to true to read seeds from a file.  See the top of this script for
                           # seed file format.  When false, generates new wallets.
-SAVE_SEEDS_TO_FILE=false  # Set to true to save seeds to a file in cleartext.  WARNING:  If false,
+SAVE_SEEDS_TO_FILE=false  # Set to true to save seeds to a file in cleartext.  WARNING: If false,
                           # the only record of these wallets will be in the wallet files created by
                           # monero-wallet-rpc.  If you lose those files, you will lose their funds.
 GENERATE_QR=false         # Set to true to generate a QR code for receiving funds to churn.
@@ -43,7 +45,7 @@ MIN_ROUNDS=5     # [rounds] Minimum number of churning rounds per session.
 MAX_ROUNDS=50    # [rounds] Maximum number of churning rounds per session.
 MIN_DELAY=1      # [seconds] Minimum delay between transactions.
 MAX_DELAY=3600   # [seconds] Maximum delay between transactions.
-NUM_SESSIONS=3   # [sessions] Number of churning sessions to perform. Set to 0 for infinite.
+NUM_SESSIONS=3   # [sessions] Number of churning sessions to perform.  Set to 0 for infinite.
 
 # Restore height offset when creation height is unknown.
 RESTORE_HEIGHT_OFFSET=1000  # [blocks] Blocks to subtract from current height if unknown creation_height.
@@ -53,13 +55,24 @@ generate_random_password() {
     echo "$(openssl rand -base64 16)"
 }
 
+# Function to build curl command with optional authentication.
+build_curl_cmd() {
+    local CURL_CMD="curl -s -X POST"
+    if [ -n "$RPC_USERNAME" ] && [ -n "$RPC_PASSWORD" ]; then
+        CURL_CMD+=" --user \"$RPC_USERNAME:$RPC_PASSWORD\""
+    fi
+    echo "$CURL_CMD"
+}
+
 # Get the current block height.
 get_current_block_height() {
     local HEIGHT
     if [ "$DEBUG_MODE" = true ]; then
         HEIGHT=1000000  # Simulated block height in debug mode.
     else
-        HEIGHT=$(curl -s -X POST http://$DAEMON_ADDRESS/json_rpc -d '{
+        local CURL_CMD
+        CURL_CMD=$(build_curl_cmd)
+        HEIGHT=$($CURL_CMD http://$DAEMON_ADDRESS/json_rpc -d '{
             "jsonrpc":"2.0",
             "id":"0",
             "method":"get_info"
@@ -95,7 +108,9 @@ create_or_restore_wallet() {
             MNEMONIC="simulated mnemonic seed words"
             CREATION_HEIGHT=$(get_current_block_height)
         else
-            curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+            local CURL_CMD
+            CURL_CMD=$(build_curl_cmd)
+            $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
                 \"jsonrpc\":\"2.0\",
                 \"id\":\"0\",
                 \"method\":\"restore_deterministic_wallet\",
@@ -126,7 +141,9 @@ create_or_restore_wallet() {
             # Save the seed file.
             save_seed_file
         else
-            curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+            local CURL_CMD
+            CURL_CMD=$(build_curl_cmd)
+            $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
                 \"jsonrpc\":\"2.0\",
                 \"id\":\"0\",
                 \"method\":\"create_wallet\",
@@ -138,7 +155,7 @@ create_or_restore_wallet() {
             }" -H 'Content-Type: application/json' > /dev/null
 
             # Get the mnemonic seed.
-            MNEMONIC=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+            MNEMONIC=$($CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
                 "jsonrpc":"2.0",
                 "id":"0",
                 "method":"query_key",
@@ -162,7 +179,9 @@ open_wallet() {
     if [ "$DEBUG_MODE" = true ]; then
         echo "(Debug mode) Simulating wallet opening."
     else
-        curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+        local CURL_CMD
+        CURL_CMD=$(build_curl_cmd)
+        $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
             \"jsonrpc\":\"2.0\",
             \"id\":\"0\",
             \"method\":\"open_wallet\",
@@ -180,7 +199,9 @@ close_wallet() {
     if [ "$DEBUG_MODE" = true ]; then
         echo "(Debug mode) Simulating wallet closing."
     else
-        curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+        local CURL_CMD
+        CURL_CMD=$(build_curl_cmd)
+        $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
             "jsonrpc":"2.0",
             "id":"0",
             "method":"close_wallet"
@@ -194,7 +215,9 @@ get_wallet_address() {
     if [ "$DEBUG_MODE" = true ]; then
         ADDRESS="SimulatedWalletAddress_${session}"
     else
-        ADDRESS=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+        local CURL_CMD
+        CURL_CMD=$(build_curl_cmd)
+        ADDRESS=$($CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
             "jsonrpc":"2.0",
             "id":"0",
             "method":"get_address"
@@ -216,7 +239,9 @@ wait_for_unlocked_balance() {
         while true; do
             # Get balance and unlock time.
             local BALANCE_INFO
-            BALANCE_INFO=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+            local CURL_CMD
+            CURL_CMD=$(build_curl_cmd)
+            BALANCE_INFO=$($CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
                 "jsonrpc":"2.0",
                 "id":"0",
                 "method":"get_balance"
@@ -261,7 +286,9 @@ perform_churning() {
             UNLOCKED_BALANCE=1000000000000  # Simulated unlocked balance in atomic units (1 XMR = 1e12 atomic units)
         else
             local BALANCE_INFO
-            BALANCE_INFO=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+            local CURL_CMD
+            CURL_CMD=$(build_curl_cmd)
+            BALANCE_INFO=$($CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
                 "jsonrpc":"2.0",
                 "id":"0",
                 "method":"get_balance"
@@ -286,7 +313,9 @@ perform_churning() {
             TX_ID="SimulatedTxHash_${i}"
             echo "(Debug mode) Simulating transfer transaction."
         else
-            TX_ID=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+            local CURL_CMD
+            CURL_CMD=$(build_curl_cmd)
+            TX_ID=$($CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
                 \"jsonrpc\":\"2.0\",
                 \"id\":\"0\",
                 \"method\":\"transfer\",
@@ -394,7 +423,9 @@ run_session() {
     if [ "$DEBUG_MODE" = true ]; then
         echo "(Debug mode) Simulating set_daemon."
     else
-        curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+        local CURL_CMD
+        CURL_CMD=$(build_curl_cmd)
+        $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
             \"jsonrpc\":\"2.0\",
             \"id\":\"0\",
             \"method\":\"set_daemon\",
@@ -408,7 +439,9 @@ run_session() {
     if [ "$DEBUG_MODE" = true ]; then
         echo "(Debug mode) Simulating wallet refresh."
     else
-        curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+        local CURL_CMD
+        CURL_CMD=$(build_curl_cmd)
+        $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
             "jsonrpc":"2.0",
             "id":"0",
             "method":"refresh"
@@ -457,8 +490,10 @@ run_session() {
                 echo "(Debug mode) Simulating restoration of next wallet."
                 NEXT_ADDRESS="SimulatedNextWalletAddress_$((session + 1))"
             else
+                local CURL_CMD
+                CURL_CMD=$(build_curl_cmd)
                 # Restore the next wallet using the seed.
-                curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+                $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
                     \"jsonrpc\":\"2.0\",
                     \"id\":\"0\",
                     \"method\":\"restore_deterministic_wallet\",
@@ -472,7 +507,7 @@ run_session() {
                 }" -H 'Content-Type: application/json' > /dev/null
 
                 # Open the next wallet.
-                curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+                $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
                     \"jsonrpc\":\"2.0\",
                     \"id\":\"0\",
                     \"method\":\"open_wallet\",
@@ -507,7 +542,9 @@ run_session() {
                 echo "(Debug mode) Simulating creation of next wallet."
                 NEXT_ADDRESS="SimulatedNextWalletAddress_$((session + 1))"
             else
-                curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+                local CURL_CMD
+                CURL_CMD=$(build_curl_cmd)
+                $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
                     \"jsonrpc\":\"2.0\",
                     \"id\":\"0\",
                     \"method\":\"create_wallet\",
@@ -519,7 +556,7 @@ run_session() {
                 }" -H 'Content-Type: application/json' > /dev/null
 
                 # Open the next wallet.
-                curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+                $CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
                     \"jsonrpc\":\"2.0\",
                     \"id\":\"0\",
                     \"method\":\"open_wallet\",
@@ -546,7 +583,9 @@ run_session() {
                         open_wallet
 
                         # Get the mnemonic seed of the next wallet.
-                        MNEMONIC=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+                        local CURL_CMD
+                        CURL_CMD=$(build_curl_cmd)
+                        MNEMONIC=$($CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
                             "jsonrpc":"2.0",
                             "id":"0",
                             "method":"query_key",
@@ -570,7 +609,9 @@ run_session() {
             SWEEP_TX_ID="SimulatedSweepTxHash"
             echo "(Debug mode) Simulating sweep_all transaction."
         else
-            SWEEP_TX_ID=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+            local CURL_CMD
+            CURL_CMD=$(build_curl_cmd)
+            SWEEP_TX_ID=$($CURL_CMD http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
                 \"jsonrpc\":\"2.0\",
                 \"id\":\"0\",
                 \"method\":\"sweep_all\",
@@ -625,7 +666,7 @@ fi
 if [ "$DEBUG_MODE" = true ]; then
     echo "Debug mode is enabled. No RPC calls will be made."
 else
-  mkdir -p "$WALLET_DIR"
+    mkdir -p "$WALLET_DIR"
 fi
 
 session=1
