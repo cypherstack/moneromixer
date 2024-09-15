@@ -73,46 +73,8 @@ create_new_wallet() {
             exit 1
         fi
 
-        # Read the first wallet entry from the seed file.
-        IFS='' read -r line < "$SEED_FILE"
-        sed -i '1d' "$SEED_FILE"
+        get_seed_info "$session"
 
-        # Parse the seed file entry.
-        # Expected format:
-        # "mnemonic: <mnemonic seed words>; [password: <wallet password>;] [creation_height: <block height>]"
-        IFS=';' read -ra PARTS <<< "$line"
-        for part in "${PARTS[@]}"; do
-            key=$(echo "$part" | cut -d':' -f1 | xargs)
-            value=$(echo "$part" | cut -d':' -f2- | xargs)
-            case "$key" in
-                "mnemonic")
-                    MNEMONIC="$value"
-                    ;;
-                "password")
-                    PASSWORD="$value"
-                    ;;
-                "creation_height")
-                    CREATION_HEIGHT="$value"
-                    ;;
-                *)
-                    ;;
-            esac
-        done
-
-        if [ -z "$MNEMONIC" ]; then
-            echo "Mnemonic not found in seed file entry."
-            exit 1
-        fi
-
-        if [ -z "$CREATION_HEIGHT" ]; then
-            # If creation_height is not provided, set restore_height to current height minus offset.
-            CURRENT_HEIGHT=$(get_current_block_height)
-            RESTORE_HEIGHT=$((CURRENT_HEIGHT - RESTORE_HEIGHT_OFFSET))
-        else
-            RESTORE_HEIGHT="$CREATION_HEIGHT"
-        fi
-
-        WALLET_NAME="wallet_$(date +%s)"
         echo "Restoring wallet from seed: $WALLET_NAME"
 
         curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
@@ -127,15 +89,6 @@ create_new_wallet() {
                 \"language\":\"English\"
             }
         }" -H 'Content-Type: application/json' > /dev/null
-
-        # Save the wallet information.
-        SEED_FILE_PATH="$WALLET_DIR/${WALLET_NAME}_seed.txt"
-        {
-            echo "mnemonic: $MNEMONIC"
-            echo "password: $PASSWORD"
-            echo "creation_height: $RESTORE_HEIGHT"
-        } > "$SEED_FILE_PATH"
-        echo "Seed information saved to $SEED_FILE_PATH"
     else
         WALLET_NAME="wallet_$(date +%s)"
         echo "Creating new wallet: $WALLET_NAME"
@@ -296,32 +249,64 @@ perform_churning() {
     done
 }
 
-# Check if jq is installed.
-if ! command -v jq >/dev/null 2>&1; then
-    echo "Error: 'jq' is not installed."
-    echo "Please install it by running:"
-    echo ""
-    echo "sudo apt-get install jq"
-    exit 1
-fi
+# Get seed information from the seed file (if used).
+get_seed_info() {
+    local index=$1
+    local line
+    line=$(sed -n "${index}p" "$SEED_FILE")
+    if [ -z "$line" ]; then
+        echo "No seed found at index $index."
+        exit 1
+    fi
 
-# Check if openssl is installed (only if random passwords are used).
-if [ "$USE_RANDOM_PASSWORD" = true ] && ! command -v openssl >/dev/null 2>&1; then
-    echo "Error: 'openssl' is required for generating random passwords but is not installed."
-    echo "Please install it by running:"
-    echo ""
-    echo "sudo apt-get install openssl"
-    exit 1
-fi
+    # Remove any leading/trailing whitespace.
+    line=$(echo "$line" | xargs)
 
-# Check if qrencode is installed (only if QR codes are used).
-if [ "$GENERATE_QR" = true ] && ! command -v qrencode >/dev/null 2>&1; then
-    echo "Error: 'qrencode' is required for generating QR codes but is not installed."
-    echo "Please install it by running:"
-    echo ""
-    echo "sudo apt-get install qrencode"
-    exit 1
-fi
+    # Check if the line contains any semicolons.
+    if [[ "$line" == *";"* ]]; then
+        # Parse the seed file entry.
+        # Expected format:
+        # "mnemonic: <mnemonic seed words>; [password: <wallet password>;] [creation_height: <block height>]"
+        IFS=';' read -ra PARTS <<< "$line"
+        for part in "${PARTS[@]}"; do
+            key=$(echo "$part" | cut -d':' -f1 | xargs)
+            value=$(echo "$part" | cut -d':' -f2- | xargs)
+            case "$key" in
+                "mnemonic")
+                    MNEMONIC="$value"
+                    ;;
+                "password")
+                    PASSWORD="$value"
+                    ;;
+                "creation_height")
+                    CREATION_HEIGHT="$value"
+                    ;;
+                *)
+                    ;;
+            esac
+        done
+    else
+        # If no semicolons, treat the entire line as the mnemonic.
+        MNEMONIC="$line"
+        PASSWORD="$PASSWORD"        # Use default PASSWORD variable.
+        CREATION_HEIGHT=""          # Will calculate restore height below.
+    fi
+
+    if [ -z "$MNEMONIC" ]; then
+        echo "Mnemonic not found in seed file entry."
+        exit 1
+    fi
+
+    if [ -z "$CREATION_HEIGHT" ]; then
+        # If creation_height is not provided, set restore_height to current height minus offset.
+        CURRENT_HEIGHT=$(get_current_block_height)
+        RESTORE_HEIGHT=$((CURRENT_HEIGHT - RESTORE_HEIGHT_OFFSET))
+    else
+        RESTORE_HEIGHT="$CREATION_HEIGHT"
+    fi
+
+    WALLET_NAME="wallet_$(date +%s)"
+}
 
 # Run a churning session.
 run_session() {
@@ -364,42 +349,54 @@ run_session() {
         # Open current wallet.
         open_wallet
 
-        # Create next wallet.
-        NEXT_WALLET_NAME="wallet_$(date +%s)_next"
-        echo "Creating next wallet: $NEXT_WALLET_NAME"
-        curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
-            \"jsonrpc\":\"2.0\",
-            \"id\":\"0\",
-            \"method\":\"create_wallet\",
-            \"params\":{
-                \"filename\":\"$NEXT_WALLET_NAME\",
-                \"password\":\"$PASSWORD\",
-                \"language\":\"English\"
-            }
-        }" -H 'Content-Type: application/json' > /dev/null
+        if [ "$USE_SEED_FILE" = true ]; then
+            NEXT_SEED_INDEX=$((SEED_INDEX + 1))
+            get_seed_info "$NEXT_SEED_INDEX"
 
-        # Get address of next wallet.
-        curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
-            \"jsonrpc\":\"2.0\",
-            \"id\":\"0\",
-            \"method\":\"open_wallet\",
-            \"params\":{
-                \"filename\":\"$NEXT_WALLET_NAME\",
-                \"password\":\"$PASSWORD\"
-            }
-        }" -H 'Content-Type: application/json' > /dev/null
+            TEMP_WALLET_NAME="temp_next_wallet"
 
-        NEXT_ADDRESS=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
-            "jsonrpc":"2.0",
-            "id":"0",
-            "method":"get_address"
-        }' -H 'Content-Type: application/json' | jq -r '.result.address')
+            echo "Restoring next wallet from seed: $TEMP_WALLET_NAME"
 
-        # Close next wallet.
-        close_wallet
+            # Restore the next wallet using the seed
+            curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+                \"jsonrpc\":\"2.0\",
+                \"id\":\"0\",
+                \"method\":\"restore_deterministic_wallet\",
+                \"params\":{
+                    \"restore_height\":$RESTORE_HEIGHT,
+                    \"filename\":\"$TEMP_WALLET_NAME\",
+                    \"password\":\"$PASSWORD\",
+                    \"seed\":\"$MNEMONIC\",
+                    \"language\":\"English\"
+                }
+            }" -H 'Content-Type: application/json' > /dev/null
 
-        # Switch back to current wallet.
-        open_wallet
+            # Open the next wallet.
+            curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
+                \"jsonrpc\":\"2.0\",
+                \"id\":\"0\",
+                \"method\":\"open_wallet\",
+                \"params\":{
+                    \"filename\":\"$TEMP_WALLET_NAME\",
+                    \"password\":\"$PASSWORD\"
+                }
+            }" -H 'Content-Type: application/json' > /dev/null
+
+            # Get address of next wallet.
+            NEXT_ADDRESS=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+                "jsonrpc":"2.0",
+                "id":"0",
+                "method":"get_address"
+            }' -H 'Content-Type: application/json' | jq -r '.result.address')
+
+            # Close next wallet.
+            close_wallet
+
+            # Delete the temporary wallet files.
+            rm -f "$TEMP_WALLET_NAME"*
+        else
+            # Create next wallet as before
+        fi
 
         # Sweep all to next wallet.
         echo "Sweeping all funds to next wallet."
@@ -417,18 +414,43 @@ run_session() {
 
         # Close wallet.
         close_wallet
-
-        # Update wallet name for next session.
-        WALLET_NAME="$NEXT_WALLET_NAME"
     fi
 
     echo "Session $session completed."
 }
 
+####################################################################################################
 # Main workflow:
+####################################################################################################
+
+# Check if jq is installed.
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Error: 'jq' is not installed."
+    echo "Please install it by running:"
+    echo ""
+    echo "sudo apt-get install jq"
+    exit 1
+fi
+
+# Check if openssl is installed (only if random passwords are used).
+if [ "$USE_RANDOM_PASSWORD" = true ] && ! command -v openssl >/dev/null 2>&1; then
+    echo "Error: 'openssl' is required for generating random passwords but is not installed."
+    echo "Please install it by running:"
+    echo ""
+    echo "sudo apt-get install openssl"
+    exit 1
+fi
+
+# Check if qrencode is installed (only if QR codes are used).
+if [ "$GENERATE_QR" = true ] && ! command -v qrencode >/dev/null 2>&1; then
+    echo "Error: 'qrencode' is required for generating QR codes but is not installed."
+    echo "Please install it by running:"
+    echo ""
+    echo "sudo apt-get install qrencode"
+    exit 1
+fi
 
 mkdir -p "$WALLET_DIR"
-
 session=1
 
 if [ "$NUM_SESSIONS" -eq 0 ]; then
