@@ -2,7 +2,29 @@
 
 # Monero Mixer
 #
-# A script to perform churning on Monero wallets. See the README for required dependencies.
+# A script to perform churning on Monero wallets.  See the README for required dependencies.  Can
+# generate random wallets and save them for future reference or use a pre-determined series of seeds
+# saved to a file.  Seeds are recorded in the same format from which they may be read, as in:
+# ```
+# mnemonic: <mnemonic seed words>; [password: <wallet password>;] [creation_height: <block height>]
+# ```
+#
+# For example:
+# ```
+# mnemonic: abandon...; password: hunter1; creation_height: 3212321
+# mnemonic: abandon...; password: hunter2; creation_height: 3232323
+# ```
+#
+# Usage:
+# - Configure the script parameters below.
+# - Make the script executable if needed:
+#   ```
+#   chmod +x moneromixer.sh
+#   ```
+# - Run the script:
+#   ```
+#   ./moneromixer.sh
+#   ```
 
 # Configuration.
 RPC_PORT=18082
@@ -14,14 +36,16 @@ WALLET_DIR="./wallets"
 SEED_FILE="./seeds.txt"
 PASSWORD="your_default_password"  # Set to empty if no password is desired.
 USE_RANDOM_PASSWORD=false         # Set to true to use random passwords.
-USE_SEED_FILE=false               # Set to true to use seeds from a file.
+USE_SEED_FILE=false               # Set to true to use seeds from a file generating and saving them.
+GENERATE_QR=false                 # Set to true to generate a QR code for receiving funds to churn.
+                                  # (Only applies when no funds are available to churn.)
 
 # Churning parameters
 MIN_ROUNDS=5     # [rounds] Minimum number of churning rounds per session.
 MAX_ROUNDS=10    # [rounds] Maximum number of churning rounds per session.
 MIN_DELAY=10     # [seconds] Minimum delay between transactions.
 MAX_DELAY=30     # [seconds] Maximum delay between transactions.
-NUM_SESSIONS=3   # [sessions] Number of churning sessions to perform.
+NUM_SESSIONS=3   # [sessions] Number of churning sessions to perform.  Set to 0 for infinite.
 
 # Restore height offset when creation height is unknown.
 RESTORE_HEIGHT_OFFSET=1000  # [blocks] Blocks to subtract from current height if unknown creation_height.
@@ -107,11 +131,6 @@ create_new_wallet() {
         # Save the wallet information.
         SEED_FILE_PATH="$WALLET_DIR/${WALLET_NAME}_seed.txt"
         {
-            echo "# Wallet Seed File Format:"
-            echo "# mnemonic: <mnemonic seed words>"
-            echo "# password: <wallet password>"
-            echo "# creation_height: <block height>"
-            echo ""
             echo "mnemonic: $MNEMONIC"
             echo "password: $PASSWORD"
             echo "creation_height: $RESTORE_HEIGHT"
@@ -120,6 +139,12 @@ create_new_wallet() {
     else
         WALLET_NAME="wallet_$(date +%s)"
         echo "Creating new wallet: $WALLET_NAME"
+
+        if [ "$USE_RANDOM_PASSWORD" = true ]; then
+            PASSWORD=$(generate_random_password)
+            echo "Generated random password: $PASSWORD"
+        fi
+
         curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d "{
             \"jsonrpc\":\"2.0\",
             \"id\":\"0\",
@@ -144,21 +169,10 @@ create_new_wallet() {
         # Get the creation height.
         CREATION_HEIGHT=$(get_current_block_height)
 
-        if [ "$USE_RANDOM_PASSWORD" = true ]; then
-            PASSWORD=$(generate_random_password)
-        fi
-
         # Save the seed file.
         SEED_FILE_PATH="$WALLET_DIR/${WALLET_NAME}_seed.txt"
         {
-            echo "# Wallet Seed File Format:"
-            echo "# mnemonic: <mnemonic seed words>"
-            echo "# password: <wallet password>"
-            echo "# creation_height: <block height>"
-            echo ""
-            echo "mnemonic: $MNEMONIC"
-            echo "password: $PASSWORD"
-            echo "creation_height: $CREATION_HEIGHT"
+            echo "mnemonic: $MNEMONIC; password: $PASSWORD; creation_height: $CREATION_HEIGHT"
         } > "$SEED_FILE_PATH"
         echo "Seed information saved to $SEED_FILE_PATH"
     fi
@@ -190,6 +204,15 @@ close_wallet() {
 
 # Wait for unlocked balance.
 wait_for_unlocked_balance() {
+    # Get the wallet's address.
+    DEST_ADDRESS=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
+        "jsonrpc":"2.0",
+        "id":"0",
+        "method":"get_address"
+    }' -H 'Content-Type: application/json' | jq -r '.result.address')
+
+    ADDRESS_DISPLAYED=false
+
     while true; do
         # Get balance and unlock time.
         BALANCE_INFO=$(curl -s -X POST http://$RPC_HOST:$RPC_PORT/json_rpc -d '{
@@ -200,12 +223,26 @@ wait_for_unlocked_balance() {
 
         UNLOCKED_BALANCE=$(echo "$BALANCE_INFO" | jq -r '.result.unlocked_balance')
 
-        if [ "$UNLOCKED_BALANCE" -gt 0 ]; then
+        if [[ -n "$UNLOCKED_BALANCE" ]] && [[ "$UNLOCKED_BALANCE" =~ ^[0-9]+$ ]] && [ "$UNLOCKED_BALANCE" -gt 0 ]; then
             echo "Unlocked balance available: $UNLOCKED_BALANCE"
             break
         else
-            echo "No unlocked balance available. Waiting for funds to arrive and unlock."
+            if [ "$ADDRESS_DISPLAYED" = false ]; then
+                echo "No unlocked balance available. Waiting for funds to arrive and unlock."
+                echo "Please send funds to the following address to continue:"
+                echo "$DEST_ADDRESS"
+
+                if [ "$GENERATE_QR" = true ]; then
+                  # Display QR code.
+                  qrencode -o - -t ANSIUTF8 "$DEST_ADDRESS" # Can use ASCII instead of ANSIUTF8.
+                fi
+
+                ADDRESS_DISPLAYED=true
+            else
+                echo "Still waiting for funds to arrive and unlock."
+            fi
             sleep 60  # Wait before checking again.
+            # TODO: Make the wait time configurable or pseudo-random.
         fi
     done
 }
@@ -259,7 +296,6 @@ perform_churning() {
     done
 }
 
-
 # Check if jq is installed.
 if ! command -v jq >/dev/null 2>&1; then
     echo "Error: 'jq' is not installed."
@@ -278,11 +314,17 @@ if [ "$USE_RANDOM_PASSWORD" = true ] && ! command -v openssl >/dev/null 2>&1; th
     exit 1
 fi
 
-# Main workflow:
+# Check if qrencode is installed (only if QR codes are used).
+if [ "$GENERATE_QR" = true ] && ! command -v qrencode >/dev/null 2>&1; then
+    echo "Error: 'qrencode' is required for generating QR codes but is not installed."
+    echo "Please install it by running:"
+    echo ""
+    echo "sudo apt-get install qrencode"
+    exit 1
+fi
 
-mkdir -p "$WALLET_DIR"
-
-for ((session=1; session<=NUM_SESSIONS; session++)); do
+# Run a churning session.
+run_session() {
     echo "Starting session $session."
 
     # Create a new wallet.
@@ -315,8 +357,8 @@ for ((session=1; session<=NUM_SESSIONS; session++)); do
     # Close wallet.
     close_wallet
 
-    # Sweep all funds to new wallet in next session (if not the last session).
-    if [ "$session" -lt "$NUM_SESSIONS" ]; then
+    # Prepare to sweep funds to new wallet in next session (if not the last session).
+    if [ "$NUM_SESSIONS" -eq 0 ] || [ "$session" -lt "$NUM_SESSIONS" ]; then
         echo "Preparing to sweep funds to new wallet."
 
         # Open current wallet.
@@ -381,6 +423,25 @@ for ((session=1; session<=NUM_SESSIONS; session++)); do
     fi
 
     echo "Session $session completed."
-done
+}
 
-echo "All sessions completed."
+# Main workflow:
+
+mkdir -p "$WALLET_DIR"
+
+session=1
+
+if [ "$NUM_SESSIONS" -eq 0 ]; then
+    echo "NUM_SESSIONS is set to 0. The script will run sessions indefinitely."
+    while true; do
+        run_session
+        session=$((session + 1))
+    done
+else
+    while [ "$session" -le "$NUM_SESSIONS" ]; do
+        run_session
+        session=$((session + 1))
+    done
+
+    echo "All sessions completed."
+fi
