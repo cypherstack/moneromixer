@@ -34,7 +34,7 @@ DAEMON_ADDRESS="127.0.0.1:18081"
 # Path to store wallets and seeds.
 WALLET_DIR="./wallets"
 SEED_FILE="./seeds.txt"
-PASSWORD="your_default_password"  # Set to empty if no password is desired.
+PASSWORD="a_very_strong_password" # Set to empty if no password is desired.
 USE_RANDOM_PASSWORD=false         # Set to true to use random passwords.
 USE_SEED_FILE=false               # Set to true to use seeds from a file generating and saving them.
 GENERATE_QR=false                 # Set to true to generate a QR code for receiving funds to churn.
@@ -288,7 +288,6 @@ get_seed_info() {
     else
         # If no semicolons, treat the entire line as the mnemonic.
         MNEMONIC="$line"
-        PASSWORD="$PASSWORD"        # Use default PASSWORD variable.
         CREATION_HEIGHT=""          # Will calculate restore height below.
     fi
 
