@@ -38,8 +38,9 @@ SAVE_SEEDS_TO_FILE=false  # Set to true to save seeds to a file in cleartext.  W
                           # monero-wallet-rpc.  If you lose those files, you will lose their funds.
 GENERATE_QR=false         # Set to true to generate a QR code for receiving funds to churn.
                           # Requires qrencode.
-DEBUG_MODE=false          # Set to true to enable debug mode.  Simulates the workflow without RPC.
-INTEGRATION_TEST=true     # Set to true to run integration tests.
+VERBOSE=false             # Set to true to enable verbose mode.  Prints extra RPC request details.
+INTEGRATION_TEST=false    # Set to true to run integration tests.  Never enters workflow on failure.
+SIMULATE_WORKFLOW=false   # Set to true to simulate the workflow without using RPC requests.
 
 # Churning parameters.
 MIN_ROUNDS=5     # [rounds] Minimum number of churning rounds per session.
@@ -63,7 +64,7 @@ else
     CURL_AUTH=()
 fi
 
-# Function to perform RPC requests with optional authentication.
+# Perform RPC requests with optional authentication.
 rpc_request() {
     local debug_mode="$1"
     local method="$2"
@@ -82,48 +83,42 @@ rpc_request() {
     fi
     curl_cmd+=("$url" "-d" "$data" "-H" "Content-Type: application/json")
 
-    # Print the curl command and the request data if in debug mode.
-    if [ "$debug_mode" = true ] || [ "$DEBUG_MODE" = true ]; then
-        echo "Executing RPC request:"
-        printf '%q ' "${curl_cmd[@]}"
-        echo
-        echo "Request Data: $data"
-    fi
-
     # Execute the curl command and capture the response.
     local response
     response=$("${curl_cmd[@]}")
-
-    # Print the full response for debugging.
-    if [ "$debug_mode" = true ] || [ "$DEBUG_MODE" = true ]; then
-        echo "Full RPC Response:"
-        echo "$response"
-    fi
 
     # Check for errors in the response.
     local error
     error=$(echo "$response" | jq -r '.error' 2>/dev/null)
 
+    # Only print errors if in verbose or debug mode.
     if [[ "$error" != "null" && "$error" != "" ]]; then
-        echo "RPC Error: $error"
+        if [ "$VERBOSE" = true ] || [ "$debug_mode" = true ]; then
+            echo "RPC Error: $error" >&2
+        fi
         return 1
     fi
 
-    # Return the response only if it is not empty.
-    if [[ "$response" == "{}" ]] || [[ -z "$response" ]]; then
-        if [ "$debug_mode" = true ] || [ "$DEBUG_MODE" = true ]; then
-            echo "Empty response received for method: $method"
-        fi
-        return 1
-    else
-        echo "$response"
+    # Print the response only if in verbose or debug mode.
+    if [ "$VERBOSE" = true ] || [ "$debug_mode" = true ]; then
+        echo "RPC Response: $response" >&2
     fi
+
+    # Return the response for further processing.
+    echo "$response"
+}
+
+# Generate a wallet name.
+#
+# Helpful for updating all wallet naming logic to be consistent throughout the script.
+generate_wallet_name() {
+    echo "wallet_$(date +%s)"
 }
 
 # Get the current block height.
 get_current_block_height() {
     local HEIGHT
-    if [ "$DEBUG_MODE" = true ]; then
+    if [ "$SIMULATE_WORKFLOW" = true ]; then
         HEIGHT=1000000  # Simulated block height in debug mode.
     else
         HEIGHT=$(curl -s -X POST "${CURL_AUTH[@]}" http://$DAEMON_ADDRESS/json_rpc -d '{
@@ -149,18 +144,17 @@ save_seed_file() {
 
 # Create or restore a wallet.
 create_or_restore_wallet() {
-    WALLET_NAME="wallet_${session}"
+    WALLET_NAME=$(generate_wallet_name)
 
     if [ "$USE_SEED_FILE" = true ]; then
         get_seed_info "$SEED_INDEX"
         echo "Restoring wallet from seed: $WALLET_NAME"
 
-        if [ "$DEBUG_MODE" = true ]; then
-            echo "(Debug mode) Simulating wallet restoration."
+        if [ "$SIMULATE_WORKFLOW" = true ]; then
+            echo "Simulating wallet restoration."
             MNEMONIC="simulated mnemonic seed words"
             CREATION_HEIGHT=$(get_current_block_height)
         else
-            echo 1234123
             if ! rpc_request false "restore_deterministic_wallet" '{
                 "restore_height": '"$RESTORE_HEIGHT"',
                 "filename": "'"$WALLET_NAME"'",
@@ -182,8 +176,8 @@ create_or_restore_wallet() {
             PASSWORD="$DEFAULT_PASSWORD"
         fi
 
-        if [ "$DEBUG_MODE" = true ]; then
-            echo "(Debug mode) Simulating wallet creation."
+        if [ "$SIMULATE_WORKFLOW" = true ]; then
+            echo "Simulating wallet creation."
             MNEMONIC="simulated mnemonic seed words"
             CREATION_HEIGHT=$(get_current_block_height)
             save_seed_file
@@ -212,12 +206,11 @@ create_or_restore_wallet() {
     fi
 }
 
-
 # Open a wallet.
 open_wallet() {
     echo "Opening wallet: $WALLET_NAME"
-    if [ "$DEBUG_MODE" = true ]; then
-        echo "(Debug mode) Simulating wallet opening."
+    if [ "$SIMULATE_WORKFLOW" = true ]; then
+        echo "Simulating wallet opening."
     else
         if ! rpc_request false "open_wallet" '{
             "filename": "'"$WALLET_NAME"'",
@@ -232,8 +225,8 @@ open_wallet() {
 # Close the wallet.
 close_wallet() {
     echo "Closing wallet."
-    if [ "$DEBUG_MODE" = true ]; then
-        echo "(Debug mode) Simulating wallet closing."
+    if [ "$SIMULATE_WORKFLOW" = true ]; then
+        echo "Simulating wallet closing."
     else
         rpc_request false "close_wallet" '{}' #> /dev/null
     fi
@@ -242,7 +235,7 @@ close_wallet() {
 # Get wallet address.
 get_wallet_address() {
     local ADDRESS
-    if [ "$DEBUG_MODE" = true ]; then
+    if [ "$SIMULATE_WORKFLOW" = true ]; then
         ADDRESS="SimulatedWalletAddress_${session}"
     else
         ADDRESS=$(rpc_request false "get_address" '{}' | jq -r '.result.address')
@@ -255,8 +248,8 @@ wait_for_unlocked_balance() {
     local DEST_ADDRESS
     DEST_ADDRESS=$(get_wallet_address)
 
-    if [ "$DEBUG_MODE" = true ]; then
-        echo "(Debug mode) Assuming unlocked balance is available."
+    if [ "$SIMULATE_WORKFLOW" = true ]; then
+        echo "Assuming unlocked balance is available."
     else
         local ADDRESS_DISPLAYED=false
 
@@ -300,7 +293,7 @@ perform_churning() {
 
     for ((i=1; i<=NUM_ROUNDS; i++)); do
         # Get balance and unlock time.
-        if [ "$DEBUG_MODE" = true ]; then
+        if [ "$SIMULATE_WORKFLOW" = true ]; then
             UNLOCKED_BALANCE=1000000000000  # Simulated unlocked balance in atomic units (1 XMR = 1e12 atomic units)
         else
             local BALANCE_INFO
@@ -321,9 +314,9 @@ perform_churning() {
         local DEST_ADDRESS
         DEST_ADDRESS=$(get_wallet_address)
 
-        if [ "$DEBUG_MODE" = true ]; then
+        if [ "$SIMULATE_WORKFLOW" = true ]; then
             TX_ID="SimulatedTxHash_${i}"
-            echo "(Debug mode) Simulating transfer transaction."
+            echo "Simulating transfer transaction."
         else
             TX_ID=$(rpc_request false "transfer" '{
                 "destinations": [{"amount": '"$UNLOCKED_BALANCE"', "address": "'"$DEST_ADDRESS"'"}],
@@ -418,6 +411,7 @@ get_seed_info() {
 
 # Run a churning session.
 run_session() {
+    printf '%*s\n' 80 | tr ' ' '='
     echo "Starting session $session."
 
     # Create or restore a wallet.
@@ -425,8 +419,8 @@ run_session() {
     open_wallet
 
     # Set daemon address.
-    if [ "$DEBUG_MODE" = true ]; then
-        echo "(Debug mode) Simulating set_daemon."
+    if [ "$SIMULATE_WORKFLOW" = true ]; then
+        echo "Simulating set_daemon."
     else
         rpc_request false "set_daemon" '{
             "address": "'"$DAEMON_ADDRESS"'"
@@ -434,8 +428,8 @@ run_session() {
     fi
 
     # Refresh wallet.
-    if [ "$DEBUG_MODE" = true ]; then
-        echo "(Debug mode) Simulating wallet refresh."
+    if [ "$SIMULATE_WORKFLOW" = true ]; then
+        echo "Simulating wallet refresh."
     else
         rpc_request false "refresh" '{}' #> /dev/null
     fi
@@ -478,8 +472,8 @@ run_session() {
 
             echo "Restoring next wallet from seed: $TEMP_WALLET_NAME"
 
-            if [ "$DEBUG_MODE" = true ]; then
-                echo "(Debug mode) Simulating restoration of next wallet."
+            if [ "$SIMULATE_WORKFLOW" = true ]; then
+                echo "Simulating restoration of next wallet."
                 NEXT_ADDRESS="SimulatedNextWalletAddress_$((session + 1))"
             else
                 # Restore the next wallet using the seed.
@@ -518,8 +512,8 @@ run_session() {
                 PASSWORD="$DEFAULT_PASSWORD"
             fi
 
-            if [ "$DEBUG_MODE" = true ]; then
-                echo "(Debug mode) Simulating creation of next wallet."
+            if [ "$SIMULATE_WORKFLOW" = true ]; then
+                echo "Simulating creation of next wallet."
                 NEXT_ADDRESS="SimulatedNextWalletAddress_$((session + 1))"
             else
                 rpc_request false "create_wallet" '{
@@ -542,7 +536,7 @@ run_session() {
 
                 # Save the seed of the next wallet to the SEED_FILE if enabled.
                 if [ "$SAVE_SEEDS_TO_FILE" = true ]; then
-                    if [ "$DEBUG_MODE" = true ]; then
+                    if [ "$SIMULATE_WORKFLOW" = true ]; then
                         MNEMONIC="simulated mnemonic seed words for next wallet"
                         CREATION_HEIGHT=$(get_current_block_height)
                         save_seed_file
@@ -564,9 +558,9 @@ run_session() {
 
         # Sweep all to next wallet.
         echo "Sweeping all funds to next wallet."
-        if [ "$DEBUG_MODE" = true ]; then
+        if [ "$SIMULATE_WORKFLOW" = true ]; then
             SWEEP_TX_ID="SimulatedSweepTxHash"
-            echo "(Debug mode) Simulating sweep_all transaction."
+            echo "Simulating sweep_all transaction."
         else
             SWEEP_TX_ID=$(rpc_request false "sweep_all" '{
                 "address": "'"$NEXT_ADDRESS"'",
@@ -590,14 +584,16 @@ run_session() {
 #
 # Run by setting INTEGRATION_TEST to true and executing the script.
 integration_tests() {
-    echo -e "Running integration tests...\n"
+    printf '%*s\n' 80 | tr ' ' '='
+    echo "Running integration tests..."
 
     # Initialize counters for passed and failed tests.
     local passed_tests=0
     local failed_tests=0
 
     # Test RPC connectivity.
-    echo -e "\nTesting RPC connectivity..."
+    printf '%*s\n' 80 | tr ' ' '-'
+    echo "Testing RPC connectivity..."
     local version_response
     version_response=$(rpc_request false "get_version" '{}')
     if [ $? -ne 0 ]; then
@@ -614,7 +610,8 @@ integration_tests() {
     fi
 
     # Test creating a wallet.
-    echo -e "\nTesting wallet creation..."
+    printf '%*s\n' 80 | tr ' ' '-'
+    echo "Testing wallet creation..."
     WALLET_NAME="wallet_$(date +%s)"
     local create_wallet_response
     create_wallet_response=$(rpc_request false "create_wallet" '{
@@ -631,7 +628,8 @@ integration_tests() {
     fi
 
     # Test opening a wallet.
-    echo -e "\nTesting wallet opening..."
+    printf '%*s\n' 80 | tr ' ' '-'
+    echo "Testing wallet opening..."
     local open_wallet_response
     open_wallet_response=$(rpc_request false "open_wallet" '{
         "filename": "'"$WALLET_NAME"'",
@@ -646,7 +644,8 @@ integration_tests() {
     fi
 
     # Test getting wallet address.
-    echo -e "\nTesting getting wallet address..."
+    printf '%*s\n' 80 | tr ' ' '-'
+    echo "Testing getting wallet address..."
     local address_response
     address_response=$(rpc_request false "get_address" '{}')
     if [ $? -ne 0 ]; then
@@ -661,7 +660,8 @@ integration_tests() {
     fi
 
     # Test refreshing wallet.
-    echo -e "\nTesting wallet refresh..."
+    printf '%*s\n' 80 | tr ' ' '-'
+    echo "Testing wallet refresh..."
     local refresh_response
     refresh_response=$(rpc_request false "refresh" '{}')
     if [ $? -ne 0 ]; then
@@ -673,7 +673,8 @@ integration_tests() {
     fi
 
     # Test getting balance.
-    echo -e "\nTesting getting wallet balance..."
+    printf '%*s\n' 80 | tr ' ' '-'
+    echo "Testing getting wallet balance..."
     local balance_response
     balance_response=$(rpc_request false "get_balance" '{}')
     if [ $? -ne 0 ]; then
@@ -691,16 +692,24 @@ integration_tests() {
     fi
 
     # Test sweep_all transaction without broadcasting.
-    echo -e "\nTesting sweep_all transaction (do_not_relay)..."
+    printf '%*s\n' 80 | tr ' ' '-'
+    echo "Testing sweep_all transaction (do_not_relay)..."
     local sweep_all_response
-    sweep_all_response=$(rpc_request true "sweep_all" '{
+    sweep_all_response=$(rpc_request false "sweep_all" '{
         "address": "'"$address"'",
         "do_not_relay": true,
         "get_tx_keys": true
     }')
+
+    # Check the response and handle the expected error case.
     if [ $? -ne 0 ]; then
-        echo "Failed: Unable to create sweep_all transaction."
-        failed_tests=$((failed_tests + 1))
+        if echo "$sweep_all_response" | jq -e '.error.message == "No unlocked balance in the specified account"' >/dev/null; then
+            echo "Sweep transaction creation passed: Expected error due to no unlocked balance."
+            passed_tests=$((passed_tests + 1))
+        else
+            echo "Failed: Unable to create sweep_all transaction."
+            failed_tests=$((failed_tests + 1))
+        fi
     else
         # Check for an empty response, which is expected for a zero balance.
         if [[ -z "$sweep_all_response" || "$sweep_all_response" == "{}" ]]; then
@@ -721,7 +730,8 @@ integration_tests() {
     fi
 
     # Test closing the wallet.
-    echo -e "\nTesting wallet closing..."
+    printf '%*s\n' 80 | tr ' ' '-'
+    echo "Testing wallet closing..."
     local close_wallet_response
     close_wallet_response=$(rpc_request false "close_wallet" '{}')
     if [ $? -ne 0 ]; then
@@ -733,14 +743,17 @@ integration_tests() {
     fi
 
     # Display the summary of test results.
-    echo -e "\n\nIntegration Tests Summary:"
+    printf '%*s\n' 80 | tr ' ' '='
+    echo -e "Integration Tests Summary:\n"
     echo "Passed tests: $passed_tests"
     echo "Failed tests: $failed_tests"
 
     if [ $failed_tests -eq 0 ]; then
         echo -e "\nAll integration tests passed!"
     else
-        echo -e "\nSome integration tests failed."
+        echo -e "\nSome integration tests failed. Exiting without entering the main workflow."
+        printf '%*s\n' 80 | tr ' ' '='
+        exit 0
     fi
 }
 
@@ -778,8 +791,8 @@ if [ "$GENERATE_QR" = true ] && ! command -v qrencode >/dev/null 2>&1; then
     exit 1
 fi
 
-if [ "$DEBUG_MODE" = true ]; then
-    echo "Debug mode is enabled. No RPC calls will be made."
+if [ "$SIMULATE_WORKFLOW" = true ]; then
+    echo "Simulate workflow mode is enabled.  No RPC calls will be made."
 else
     mkdir -p "$WALLET_DIR"
 fi
