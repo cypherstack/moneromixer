@@ -27,12 +27,11 @@ RPC_USERNAME="username"
 RPC_PASSWORD="password"
 
 # General configuration.
-WALLET_DIR="./wallets"
-SEED_FILE="./seeds.txt"
-DEFAULT_PASSWORD="0"      # Default wallet password.  Set to "0" to prompt for password input.
 USE_RANDOM_PASSWORD=false # Set to true to use random passwords.  Requires openssl.
+DEFAULT_PASSWORD="0"      # Default wallet password.  Set to "0" to prompt for password input.
 USE_SEED_FILE=false       # Set to true to read seeds from a file.  See the top of this script for
                           # seed file format.  When false, generates new wallets.
+SEED_FILE="./seeds.txt"   # Path to the seed file.
 SAVE_SEEDS_TO_FILE=false  # Set to true to save seeds to a file in cleartext.  WARNING: If false,
                           # the only record of these wallets will be in the wallet files created by
                           # monero-wallet-rpc.  If you lose those files, you will lose their funds.
@@ -888,8 +887,6 @@ fi
 
 if [ "$SIMULATE_WORKFLOW" = true ]; then
     echo "Simulate workflow mode is enabled.  No RPC calls will be made."
-else
-    mkdir -p "$WALLET_DIR"
 fi
 
 session=1

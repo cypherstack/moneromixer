@@ -1,6 +1,6 @@
 # Monero Mixer
 
-A simple script to perform churning on Monero wallets.
+A simple script to perform churning on Monero wallets using monero-wallet-rpc.
 
 # Getting started
 ## Install Dependencies:
@@ -9,9 +9,19 @@ A simple script to perform churning on Monero wallets.
     ```bash
     sudo apt-get install jq
     ```
-  - Make sure `openssl` is installed for generating random passwords:
+
+Additional dependencies are required for certain optional features; you can skip these, if their
+respective features are enabled but their dependencies missing, the script will prompt their 
+installation.
+
+  - Install `openssl` in order to generate random passwords:
     ```bash
     sudo apt-get install openssl
+    ```
+
+  - Install `qrencode` in order to generate QR codes:
+    ```bash
+    sudo apt-get install qrencode
     ```
 
 ## Set Up `monero-wallet-rpc:`
@@ -20,22 +30,27 @@ A simple script to perform churning on Monero wallets.
     ```bash
     monero-wallet-rpc --rpc-bind-port 18082 --disable-rpc-login --daemon-address 127.0.0.1:18081
     ```
-    - Security Note: `--disable-rpc-login` is used for simplicity in this script.  In a production 
-      environment, you should use secure RPC authentication.
+    - Security Note: `--disable-rpc-login` is used for simplicity in this example command.  In a 
+      production environment, you should use secure RPC authentication.
 
 ## Configure the Script:
 
-  - Open the `moneromixer.sh` script and adjust the configuration variables at the top to match your
-    environment and preferences.
-  - `RPC_PORT`, `RPC_HOST`, and `DAEMON_ADDRESS` should match your Monero setup.
-  - `WALLET_DIR` is the directory where wallets and seeds will be stored.
-  - `SEED_FILE` is the path to a text file containing mnemonics (one per line) if you're using 
-     predefined seeds.
-  - `PASSWORD` can be set to your desired default password. Leave it empty ("") if no password is 
-     desired. 
+Open the `moneromixer.sh` script and adjust the configuration variables at the top to match your
+environment and preferences.
+
+  - `RPC_HOST`, `RPC_PORT`, `RPC_USERNAME`, `RPC_PASSWORD`, and `DAEMON_ADDRESS` should match your 
+    Monero setup.
   - Set `USE_RANDOM_PASSWORD` to true if you want random passwords generated and saved alongside the
-    mnemonics. 
-  - Set `USE_SEED_FILE` to true if you want to use mnemonics from a file. 
+    mnemonics.
+  - `DEFAULT_PASSWORD` can be set to your desired default wallet password.  Set to "0" to prompt for
+    password entry.  Leave it empty ("") if no password is desired.
+  - Set `USE_SEED_FILE` to true if you want to use mnemonics from a file.  If false, new wallets 
+    will be created.
+  - `SAVE_SEEDS_TO_FILE` can be set to true to save seeds to a file in cleartext.  WARNING: If 
+    false, the only record of these wallets will be in the wallet files created by monero-wallet-rpc. 
+    If you lose those files, you will lose their funds.
+  - `GENERATE_QR` can be set to true to generate a QR code for receiving funds to churn.  Requires 
+    `qrencode`.
   - Adjust `MIN_ROUNDS`, `MAX_ROUNDS`, `MIN_DELAY`, `MAX_DELAY`, and `NUM_SESSIONS` to control the 
     churning behavior.
 
@@ -50,11 +65,6 @@ A simple script to perform churning on Monero wallets.
     ```bash
     ./moneromixer.sh
     ```
-
-## Monitor the Process:
-
-  - The script will output the progress of each session, including transaction hashes. 
-  - Wallets and seeds will be saved in the specified `WALLET_DIR`.
 
 # Workflow overview
 ## Sessions and Rounds
@@ -71,7 +81,8 @@ A simple script to perform churning on Monero wallets.
 ## Wallet Management
   - At the beginning of each session, a new wallet is created.
     - If `USE_SEED_FILE` is true, it restores wallets from a list of mnemonics.
-    - If `USE_SEED_FILE` is false, it creates new wallets and saves their mnemonics.
+    - If `USE_SEED_FILE` is false, it creates new wallets.
+    - If `SAVE_SEEDS_TO_FILE` is true, it saves the mnemonics to a file.
   - Between sessions (except the last one), it sweeps all funds to the next wallet.
 
 ## Passwords
@@ -82,9 +93,9 @@ A simple script to perform churning on Monero wallets.
 
 ## Security Considerations
 
-- This script is for testing and prototyping purposes. In a production environment, ensure that your 
-RPC endpoints are secured.
-- Be cautious with wallet passwords and mnemonic seeds. Do not expose them to insecure environments.
+- This script is for testing and prototyping purposes.  In a production environment, ensure that 
+your RPC endpoints are secured.
+- Be cautious with wallet passwords and mnemonic seeds.  Do not expose them to insecure environments.
 
 ## Disclaimer
 
