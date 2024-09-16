@@ -3,7 +3,7 @@
 A simple script to perform churning on Monero wallets using monero-wallet-rpc.
 
 # Getting started
-## Install Dependencies:
+## Install dependencies:
 
   - Ensure you have `jq` installed for JSON parsing:
     ```bash
@@ -24,7 +24,7 @@ installation.
     sudo apt-get install qrencode
     ```
 
-## Set Up `monero-wallet-rpc:`
+## Set up `monero-wallet-rpc:`
 
   - Start `monero-wallet-rpc` with a placeholder wallet or no wallet:
     ```bash
@@ -33,7 +33,7 @@ installation.
     - Security Note: `--disable-rpc-login` is used for simplicity in this example command.  In a 
       production environment, you should use secure RPC authentication.
 
-## Configure the Script:
+## Configure the script:
 
 Open the `moneromixer.sh` script and adjust the configuration variables at the top to match your
 environment and preferences.
@@ -51,10 +51,12 @@ environment and preferences.
     If you lose those files, you will lose their funds.
   - `GENERATE_QR` can be set to true to generate a QR code for receiving funds to churn.  Requires 
     `qrencode`.
+  - Set `SELF_RESTART` to true if you want the script to restart itself after the configured number
+    of sessions or after an error.  This is useful for long-term churning.
   - Adjust `MIN_ROUNDS`, `MAX_ROUNDS`, `MIN_DELAY`, `MAX_DELAY`, and `NUM_SESSIONS` to control the 
     churning behavior.
 
-## Run the Script:
+## Run the script:
 
   - Make the script executable:
     ```bash
@@ -66,8 +68,37 @@ environment and preferences.
     ./moneromixer.sh
     ```
 
+## Configure script to restart / loop
+
+  - If you want the script to restart itself after a certain number of sessions or after an error, 
+    set `SELF_RESTART` to `true`.
+  - If you want the script to run indefinitely, set `NUM_SESSIONS` to `0`.
+  - You can also use a tool like `systemd` to manage the script as a service, as in:
+
+    ```
+    [Unit]
+    Description=Monero Mixer Script
+    After=network.target
+    
+    [Service]
+    Type=simple
+    ExecStart=/path/to/moneromixer.sh
+    Restart=always
+    RestartSec=5
+    
+    [Install]
+    WantedBy=multi-user.target
+    ```
+
+    - Enable and start the service:
+
+      ```
+      sudo systemctl enable moneromixer
+      sudo systemctl start moneromixer
+      ```
+
 # Workflow overview
-## Sessions and Rounds
+## Sessions and rounds
 
   - The script runs for a specified number of sessions (`NUM_SESSIONS`).
   - Within each session, it performs a random number of churning rounds between `MIN_ROUNDS` and 
@@ -78,7 +109,7 @@ environment and preferences.
   - Between each transaction, the script waits for a random delay between `MIN_DELAY` and 
     `MAX_DELAY` seconds.
 
-## Wallet Management
+## Wallet management
   - At the beginning of each session, a new wallet is created.
     - If `USE_SEED_FILE` is true, it restores wallets from a list of mnemonics.
     - If `USE_SEED_FILE` is false, it creates new wallets.
@@ -91,7 +122,7 @@ environment and preferences.
 
 # Notes
 
-## Security Considerations
+## Security considerations
 
 - This script is for testing and prototyping purposes.  In a production environment, ensure that 
 your RPC endpoints are secured.

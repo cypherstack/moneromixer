@@ -19,6 +19,8 @@
 # - Run the script:
 #   ./moneromixer.sh
 
+trap 'handle_error "Script terminated unexpectedly." "trap"; exit 1' EXIT INT TERM
+
 # RPC configuration.
 RPC_HOST="127.0.0.1"
 RPC_PORT=18082
@@ -47,6 +49,16 @@ MAX_ROUNDS=50    # [rounds] Maximum number of churning rounds per session.
 MIN_DELAY=1      # [seconds] Minimum delay between transactions.
 MAX_DELAY=3600   # [seconds] Maximum delay between transactions.
 NUM_SESSIONS=3   # [sessions] Number of churning sessions to perform.  Set to 0 for infinite.
+
+# State file.
+STATE_FILE="./state.log"
+USE_STATE_FILE=true # Set to false to disable state file usage.  WARNING: If false, the script will
+                    # not remember the last session and will start from the beginning each time.
+                    # The only information saved is the last seed index used, the number of the last
+                    # session, the last wallet name generated, and the next wallet name to use.
+SELF_RESTART=false  # Set to true to restart the script after completion.  Useful for running
+                    # continuously.  If false, the script will exit after completing the sessions or
+                    # on an error.
 
 # Restore height offset when creation height is unknown.
 RESTORE_HEIGHT_OFFSET=1000  # [blocks] Blocks to subtract from current height if unknown creation_height.
@@ -143,6 +155,8 @@ save_seed_file() {
 
 # Get seed information from the seed file.
 get_seed_info() {
+    local context="get_seed_info"
+
     local index=$1
     local line
     line=$(sed -n "${index}p" "$SEED_FILE")
@@ -153,12 +167,10 @@ get_seed_info() {
             SEED_INDEX=1
             line=$(sed -n "${SEED_INDEX}p" "$SEED_FILE")
             if [ -z "$line" ]; then
-                echo "Seed file is empty."
-                exit 1
+                handle_error "Seed file is empty." "$context"
             fi
         else
-            echo "No seed found at index $index."
-            exit 1
+            handle_error "No seed found at index $index." "$context"
         fi
     fi
 
@@ -220,6 +232,11 @@ get_seed_info() {
 
 # Create, restore, or open a wallet.
 create_restore_or_open_wallet() {
+    local context="create_restore_or_open_wallet"
+
+    # Save state before attempting to open or restore.
+    save_state
+
     # Variable to track whether a new wallet name was generated.
     local NEW_WALLET_NAME=false
 
@@ -305,8 +322,7 @@ create_restore_or_open_wallet() {
                 "password": "'"$PASSWORD"'",
                 "language": "English"
             }'; then
-                echo "Failed to create wallet.  Aborting."
-                exit 1
+                handle_error "Failed to create wallet.  Aborting." "$context"
             fi
 
             # Continue only if the response is valid.
@@ -327,6 +343,8 @@ create_restore_or_open_wallet() {
 # Open a wallet.
 # Open the correct wallet before sweeping funds
 open_wallet() {
+    local context="open_wallet"
+
     echo "Opening wallet: $WALLET_NAME"
     if [ "$SIMULATE_WORKFLOW" = true ]; then
         echo "Simulating wallet opening."
@@ -335,8 +353,7 @@ open_wallet() {
             "filename": "'"$WALLET_NAME"'",
             "password": "'"$PASSWORD"'"
         }'; then
-            echo "Failed to open wallet. Aborting."
-            exit 1
+            handle_error "Failed to open wallet. Aborting." "$context"
         fi
     fi
 }
@@ -426,6 +443,8 @@ wait_for_unlocked_balance() {
 
 # Perform churning.
 perform_churning() {
+    local context="perform_churning"
+
     local NUM_ROUNDS=$((RANDOM % (MAX_ROUNDS - MIN_ROUNDS + 1) + MIN_ROUNDS))
     echo "Performing $NUM_ROUNDS churning rounds."
 
@@ -463,8 +482,7 @@ perform_churning() {
             }' | jq -r '.result.tx_hash_list[]')
 
             if [ -z "$TX_ID" ]; then
-                echo "Failed to sweep funds.  No transaction hash returned."
-                exit 1
+                handle_error "Failed to sweep funds.  No transaction hash returned." "$context"
             fi
             # TODO: Add configuration to send less than the full unlocked balance.
         fi
@@ -480,6 +498,8 @@ perform_churning() {
 
 # Run a churning session.
 run_session() {
+    local context="run_session"
+
     printf '%*s\n' 80 | tr ' ' '='
     echo "Starting session $session."
 
@@ -650,8 +670,7 @@ run_session() {
             UNLOCKED_BALANCE=$(rpc_request false "get_balance" '{}' | jq -r '.result.unlocked_balance')
 
             if [[ -z "$UNLOCKED_BALANCE" || "$UNLOCKED_BALANCE" -le 0 ]]; then
-                echo "Error: No unlocked funds available to sweep."
-                exit 1
+                handle_error "Error: No unlocked funds available to sweep." "$context"
             fi
 
             # Attempt to sweep the unlocked balance to the next wallet address.
@@ -661,8 +680,7 @@ run_session() {
             }' | jq -r '.result.tx_hash_list[]')
 
             if [ -z "$SWEEP_TX_ID" ]; then
-                echo "Failed to sweep funds. No transaction hash returned."
-                exit 1
+                handle_error "Failed to sweep funds. No transaction hash returned." "$context"
             fi
         fi
 
@@ -676,6 +694,49 @@ run_session() {
     fi
 
     echo "Session $session completed."
+}
+
+# Save the current state to the state file.
+save_state() {
+    echo "SEED_INDEX=$SEED_INDEX" > "$STATE_FILE"
+    echo "session=$session" >> "$STATE_FILE"
+    echo "WALLET_NAME=$WALLET_NAME" >> "$STATE_FILE"
+    echo "NEXT_WALLET_NAME=$NEXT_WALLET_NAME" >> "$STATE_FILE"
+}
+
+# Load the state from the state file.
+load_state() {
+    if [ -f "$STATE_FILE" ]; then
+        source "$STATE_FILE"
+    else
+        # Default initial state.
+        SEED_INDEX=1
+        session=1
+        WALLET_NAME=""
+        NEXT_WALLET_NAME=""
+    fi
+}
+
+# Handle errors and save state.
+handle_error() {
+    local error_message="$1"
+    local context="$2"
+    if [ -n "$error_message" ]; then
+        echo "[ERROR] $error_message in $context" >&2
+    else
+        echo "[ERROR] An unknown error occurred in $context." >&2
+    fi
+
+    # Save the current state.
+    save_state
+
+    # Check if the script should relaunch itself.
+    if [ "$SELF_RESTART" = true ]; then
+        echo "Relaunching the script..."
+        exec "$0" "$@"
+    else
+        exit 1
+    fi
 }
 
 # Integration tests.
@@ -904,16 +965,21 @@ if [ "$DEFAULT_PASSWORD" = "0" ]; then
     echo
 fi
 
+# Load last workflow state.
+load_state
+
+context="main workflow"
+
 if [ "$NUM_SESSIONS" -eq 0 ]; then
     echo "NUM_SESSIONS is set to 0. The script will run sessions indefinitely."
     while true; do
-        run_session
+        run_session || handle_error "An error occurred during session $session.  Exiting." "$context"
         session=$((session + 1))
         SEED_INDEX=$((SEED_INDEX + 1))
     done
 else
     while [ "$session" -le "$NUM_SESSIONS" ]; do
-        run_session
+        run_session || handle_error "An error occurred during session $session.  Exiting." "$context"
         session=$((session + 1))
         SEED_INDEX=$((SEED_INDEX + 1))
     done
