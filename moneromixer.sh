@@ -137,7 +137,7 @@ save_seed_file() {
         } >> "$SEED_FILE"
         echo "Seed information appended to $SEED_FILE"
     else
-        echo "Seed saving is disabled.  Seed information will not be saved to a file."
+        echo "Seed saving is disabled. Seed information will not be saved to a file."
     fi
 }
 
@@ -149,7 +149,7 @@ get_seed_info() {
     if [ -z "$line" ]; then
         if [ "$NUM_SESSIONS" -eq 0 ]; then
             # Loop back to the beginning of the seed file.
-            echo "Reached end of seed file.  Looping back to the beginning."
+            echo "Reached end of seed file. Looping back to the beginning."
             SEED_INDEX=1
             line=$(sed -n "${SEED_INDEX}p" "$SEED_FILE")
             if [ -z "$line" ]; then
@@ -325,6 +325,7 @@ create_restore_or_open_wallet() {
 }
 
 # Open a wallet.
+# Open the correct wallet before sweeping funds
 open_wallet() {
     echo "Opening wallet: $WALLET_NAME"
     if [ "$SIMULATE_WORKFLOW" = true ]; then
@@ -636,6 +637,9 @@ run_session() {
             fi
         fi
 
+        # Open the correct wallet before sweeping funds
+        open_wallet
+
         # Sweep all to next wallet.
         echo "Sweeping all funds to next wallet."
         if [ "$SIMULATE_WORKFLOW" = true ]; then
@@ -645,7 +649,7 @@ run_session() {
             # Check the unlocked balance before attempting to sweep.
             UNLOCKED_BALANCE=$(rpc_request false "get_balance" '{}' | jq -r '.result.unlocked_balance')
 
-            if [ "$UNLOCKED_BALANCE" -le 0 ]; then
+            if [[ -z "$UNLOCKED_BALANCE" || "$UNLOCKED_BALANCE" -le 0 ]]; then
                 echo "Error: No unlocked funds available to sweep."
                 exit 1
             fi
@@ -657,7 +661,7 @@ run_session() {
             }' | jq -r '.result.tx_hash_list[]')
 
             if [ -z "$SWEEP_TX_ID" ]; then
-                echo "Failed to sweep funds.  No transaction hash returned."
+                echo "Failed to sweep funds. No transaction hash returned."
                 exit 1
             fi
         fi
@@ -691,7 +695,7 @@ integration_tests() {
     local version_response
     version_response=$(rpc_request false "get_version" '{}')
     if [ $? -ne 0 ]; then
-        echo "Failed: Unable to connect to RPC server or authenticate.  Check your configuration."
+        echo "Failed: Unable to connect to RPC server or authenticate. Check your configuration."
         failed_tests=$((failed_tests + 1))
     else
         # Extract and display the version information
@@ -845,7 +849,7 @@ integration_tests() {
     if [ $failed_tests -eq 0 ]; then
         echo -e "\nAll integration tests passed!"
     else
-        echo -e "\nSome integration tests failed.  Exiting without entering the main workflow."
+        echo -e "\nSome integration tests failed. Exiting without entering the main workflow."
         printf '%*s\n' 80 | tr ' ' '='
         exit 0
     fi
@@ -887,6 +891,8 @@ fi
 
 if [ "$SIMULATE_WORKFLOW" = true ]; then
     echo "Simulate workflow mode is enabled.  No RPC calls will be made."
+else
+    mkdir -p "$WALLET_DIR"
 fi
 
 session=1
