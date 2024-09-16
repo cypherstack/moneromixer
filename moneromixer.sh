@@ -530,15 +530,27 @@ run_session() {
                 if [ "$NUM_SESSIONS" -eq 0 ]; then
                     NEXT_SEED_INDEX=1  # Loop back to the beginning.
                 else
-                    echo "No more seeds available in the seed file."
-                    exit 1
+                    echo "Reached end of seed file.  Adding a new seed entry."
+                    # Generate a new wallet and append it to the seed file.
+                    MNEMONIC=$(rpc_request false "query_key" '{"key_type": "mnemonic"}' | jq -r '.result.key')
+                    CREATION_HEIGHT=$(get_current_block_height)
+                    NEW_WALLET_NAME=$(generate_wallet_name)
+                    PASSWORD="$DEFAULT_PASSWORD"
+
+                    # Append new seed information to the file.
+                    {
+                        echo "mnemonic: $MNEMONIC; password: $PASSWORD; creation_height: $CREATION_HEIGHT; wallet_name: $NEW_WALLET_NAME"
+                    } >> "$SEED_FILE"
+                    echo "New seed entry added to $SEED_FILE: $NEW_WALLET_NAME"
+
+                    # Update the next seed index after adding.
+                    NEXT_SEED_INDEX=$((total_seeds + 1))
                 fi
             fi
 
+            # Now, get the seed info from the new or looped back entry.
             get_seed_info "$NEXT_SEED_INDEX"
-
             local TEMP_WALLET_NAME="wallet_${session}_next"
-
             echo "Restoring next wallet from seed: $TEMP_WALLET_NAME"
 
             if [ "$SIMULATE_WORKFLOW" = true ]; then
