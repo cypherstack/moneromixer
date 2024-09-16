@@ -134,7 +134,7 @@ get_current_block_height() {
 save_seed_file() {
     if [ "$SAVE_SEEDS_TO_FILE" = true ]; then
         {
-            echo "mnemonic: $MNEMONIC; password: $PASSWORD; creation_height: $CREATION_HEIGHT"
+            echo "mnemonic: $MNEMONIC; password: $PASSWORD; creation_height: $CREATION_HEIGHT; wallet_name: $WALLET_NAME"
         } >> "$SEED_FILE"
         echo "Seed information appended to $SEED_FILE"
     else
@@ -142,12 +142,138 @@ save_seed_file() {
     fi
 }
 
-# Create or restore a wallet.
-create_or_restore_wallet() {
-    WALLET_NAME=$(generate_wallet_name)
+# Get seed information from the seed file.
+get_seed_info() {
+    local index=$1
+    local line
+    line=$(sed -n "${index}p" "$SEED_FILE")
+    if [ -z "$line" ]; then
+        if [ "$NUM_SESSIONS" -eq 0 ]; then
+            # Loop back to the beginning of the seed file.
+            echo "Reached end of seed file. Looping back to the beginning."
+            SEED_INDEX=1
+            line=$(sed -n "${SEED_INDEX}p" "$SEED_FILE")
+            if [ -z "$line" ]; then
+                echo "Seed file is empty."
+                exit 1
+            fi
+        else
+            echo "No seed found at index $index."
+            exit 1
+        fi
+    fi
 
+    # Reset variables before parsing.
+    PASSWORD="$DEFAULT_PASSWORD"
+    CREATION_HEIGHT=""
+    WALLET_NAME=""
+
+    # Remove any leading/trailing whitespace.
+    line=$(echo "$line" | xargs)
+
+    # Check if the line contains any semicolons.
+    if [[ "$line" == *";"* ]]; then
+        # Parse the seed file entry.
+        IFS=';' read -ra PARTS <<< "$line"
+        for part in "${PARTS[@]}"; do
+            local key
+            key=$(echo "$part" | cut -d':' -f1 | xargs)
+            local value
+            value=$(echo "$part" | cut -d':' -f2- | xargs)
+            case "$key" in
+                "mnemonic")
+                    MNEMONIC="$value"
+                    ;;
+                "password")
+                    PASSWORD="$value"
+                    ;;
+                "creation_height")
+                    CREATION_HEIGHT="$value"
+                    ;;
+                "wallet_name")
+                    WALLET_NAME="$value"
+                    ;;
+                *)
+                    ;;
+            esac
+        done
+    else
+        # If no semicolons, treat the entire line as the mnemonic.
+        MNEMONIC="$line"
+        # PASSWORD remains as DEFAULT_PASSWORD
+        # CREATION_HEIGHT and WALLET_NAME remain empty
+    fi
+
+    if [ -z "$MNEMONIC" ]; then
+        echo "Mnemonic not found in seed file entry."
+        exit 1
+    fi
+
+    if [ -z "$CREATION_HEIGHT" ]; then
+        # If creation_height is not provided, set restore_height to current height minus offset.
+        local CURRENT_HEIGHT
+        CURRENT_HEIGHT=$(get_current_block_height)
+        RESTORE_HEIGHT=$((CURRENT_HEIGHT - RESTORE_HEIGHT_OFFSET))
+    else
+        RESTORE_HEIGHT="$CREATION_HEIGHT"
+    fi
+}
+
+# Create, restore, or open a wallet.
+create_restore_or_open_wallet() {
+    # Variable to track whether a new wallet name was generated.
+    local NEW_WALLET_NAME=false
+
+    # Get seed information if using a seed file.
     if [ "$USE_SEED_FILE" = true ]; then
         get_seed_info "$SEED_INDEX"
+
+        # If no wallet name is provided, generate a new one.
+        if [ -z "$WALLET_NAME" ]; then
+            WALLET_NAME=$(generate_wallet_name)
+            NEW_WALLET_NAME=true
+            echo "No wallet name found in seed file.  Generated new wallet name: $WALLET_NAME"
+            # Update the seed file with the new wallet name.
+            sed -i "${SEED_INDEX}s/$/; wallet_name: $WALLET_NAME/" "$SEED_FILE"
+            echo "Updated seed file with new wallet name: $WALLET_NAME"
+        else
+            echo "Using wallet name from seed file: $WALLET_NAME"
+        fi
+    else
+        WALLET_NAME=$(generate_wallet_name)
+        NEW_WALLET_NAME=true
+    fi
+
+    if [ "$NEW_WALLET_NAME" = false ]; then
+        # Try to open the wallet to check if it already exists.
+        echo "Checking if wallet exists: $WALLET_NAME"
+        open_wallet_response=$(rpc_request false "open_wallet" '{
+            "filename": "'"$WALLET_NAME"'",
+            "password": "'"$PASSWORD"'"
+        }')
+
+        # Check if the wallet exists or not based on the error message.
+        echo "$open_wallet_response" >&2
+        if echo "$open_wallet_response" | grep -q "Wallet already exists"; then
+            echo "Wallet already exists.  Opened existing wallet: $WALLET_NAME"
+            return
+        elif echo "$open_wallet_response" | grep -q "Failed to open wallet"; then
+            echo "Wallet does not exist.  Proceeding to restore from seed or create a new one."
+        else
+            # Handle any unexpected errors or assume wallet opened successfully.
+            echo "Unexpected response while checking wallet: $open_wallet_response"
+            if [ -z "$open_wallet_response" ]; then
+                echo "Wallet opened successfully or empty response received: $open_wallet_response"
+                return
+            else
+                echo "Failed to open wallet due to unexpected error.  Aborting."
+                exit 1
+            fi
+        fi
+    fi
+
+    # Attempt to restore the wallet if it does not exist.
+    if [ "$USE_SEED_FILE" = true ]; then
         echo "Restoring wallet from seed: $WALLET_NAME"
 
         if [ "$SIMULATE_WORKFLOW" = true ]; then
@@ -162,7 +288,7 @@ create_or_restore_wallet() {
                 "password": "'"$PASSWORD"'",
                 "language": "English"
             }'; then
-                echo "Failed to restore wallet. Aborting."
+                echo "Failed to restore wallet.  Aborting."
                 exit 1
             fi
         fi
@@ -187,11 +313,11 @@ create_or_restore_wallet() {
                 "password": "'"$PASSWORD"'",
                 "language": "English"
             }'; then
-                echo "Failed to create wallet. Aborting."
+                echo "Failed to create wallet.  Aborting."
                 exit 1
             fi
 
-            # Continue only if the response is valid
+            # Continue only if the response is valid.
             open_wallet
 
             # Get the mnemonic seed.
@@ -345,88 +471,13 @@ perform_churning() {
     done
 }
 
-# Get seed information from the seed file.
-get_seed_info() {
-    local index=$1
-    local line
-    line=$(sed -n "${index}p" "$SEED_FILE")
-    if [ -z "$line" ]; then
-        if [ "$NUM_SESSIONS" -eq 0 ]; then
-            # Loop back to the beginning of the seed file.
-            echo "Reached end of seed file. Looping back to the beginning."
-            SEED_INDEX=1
-            line=$(sed -n "${SEED_INDEX}p" "$SEED_FILE")
-            if [ -z "$line" ]; then
-                echo "Seed file is empty."
-                exit 1
-            fi
-        else
-            echo "No seed found at index $index."
-            exit 1
-        fi
-    fi
-
-    # Reset PASSWORD and CREATION_HEIGHT before parsing.
-    PASSWORD="$DEFAULT_PASSWORD"
-    CREATION_HEIGHT=""
-
-    # Remove any leading/trailing whitespace.
-    line=$(echo "$line" | xargs)
-
-    # Check if the line contains any semicolons.
-    if [[ "$line" == *";"* ]]; then
-        # Parse the seed file entry.
-        IFS=';' read -ra PARTS <<< "$line"
-        for part in "${PARTS[@]}"; do
-            local key
-            key=$(echo "$part" | cut -d':' -f1 | xargs)
-            local value
-            value=$(echo "$part" | cut -d':' -f2- | xargs)
-            case "$key" in
-                "mnemonic")
-                    MNEMONIC="$value"
-                    ;;
-                "password")
-                    PASSWORD="$value"
-                    ;;
-                "creation_height")
-                    CREATION_HEIGHT="$value"
-                    ;;
-                *)
-                    ;;
-            esac
-        done
-    else
-        # If no semicolons, treat the entire line as the mnemonic.
-        MNEMONIC="$line"
-        # PASSWORD remains as DEFAULT_PASSWORD
-        # CREATION_HEIGHT remains empty
-    fi
-
-    if [ -z "$MNEMONIC" ]; then
-        echo "Mnemonic not found in seed file entry."
-        exit 1
-    fi
-
-    if [ -z "$CREATION_HEIGHT" ]; then
-        # If creation_height is not provided, set restore_height to current height minus offset.
-        local CURRENT_HEIGHT
-        CURRENT_HEIGHT=$(get_current_block_height)
-        RESTORE_HEIGHT=$((CURRENT_HEIGHT - RESTORE_HEIGHT_OFFSET))
-    else
-        RESTORE_HEIGHT="$CREATION_HEIGHT"
-    fi
-
-    WALLET_NAME="wallet_${session}"
-}
-
 # Run a churning session.
 run_session() {
     printf '%*s\n' 80 | tr ' ' '='
     echo "Starting session $session."
 
     # Create or restore a wallet.
-    create_or_restore_wallet
+    create_restore_or_open_wallet
     open_wallet
 
     # Set daemon address.
