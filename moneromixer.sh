@@ -260,15 +260,8 @@ create_restore_or_open_wallet() {
         elif echo "$open_wallet_response" | grep -q "Failed to open wallet"; then
             echo "Wallet does not exist.  Proceeding to restore from seed or create a new one."
         else
-            # Handle any unexpected errors or assume wallet opened successfully.
-            echo "Unexpected response while checking wallet: $open_wallet_response"
-            if [ -z "$open_wallet_response" ]; then
-                echo "Wallet opened successfully or empty response received: $open_wallet_response"
-                return
-            else
-                echo "Failed to open wallet due to unexpected error.  Aborting."
-                exit 1
-            fi
+            # Assume wallet opened successfully.
+            return
         fi
     fi
 
@@ -455,10 +448,16 @@ perform_churning() {
             TX_ID="SimulatedTxHash_${i}"
             echo "Simulating transfer transaction."
         else
-            TX_ID=$(rpc_request false "transfer" '{
-                "destinations": [{"amount": '"$UNLOCKED_BALANCE"', "address": "'"$DEST_ADDRESS"'"}],
-                "get_tx_key": true
-            }' | jq -r '.result.tx_hash')
+            # Attempt to sweep the unlocked balance to the next wallet address.
+            TX_ID=$(rpc_request false "sweep_all" '{
+                "address": "'"$DEST_ADDRESS"'",
+                "get_tx_keys": true
+            }' | jq -r '.result.tx_hash_list[]')
+
+            if [ -z "$TX_ID" ]; then
+                echo "Failed to sweep funds.  No transaction hash returned."
+                exit 1
+            fi
             # TODO: Add configuration to send less than the full unlocked balance.
         fi
 
@@ -624,10 +623,24 @@ run_session() {
             SWEEP_TX_ID="SimulatedSweepTxHash"
             echo "Simulating sweep_all transaction."
         else
+            # Check the unlocked balance before attempting to sweep.
+            UNLOCKED_BALANCE=$(rpc_request false "get_balance" '{}' | jq -r '.result.unlocked_balance')
+
+            if [ "$UNLOCKED_BALANCE" -le 0 ]; then
+                echo "Error: No unlocked funds available to sweep."
+                exit 1
+            fi
+
+            # Attempt to sweep the unlocked balance to the next wallet address.
             SWEEP_TX_ID=$(rpc_request false "sweep_all" '{
                 "address": "'"$NEXT_ADDRESS"'",
                 "get_tx_keys": true
             }' | jq -r '.result.tx_hash_list[]')
+
+            if [ -z "$SWEEP_TX_ID" ]; then
+                echo "Failed to sweep funds. No transaction hash returned."
+                exit 1
+            fi
         fi
 
         echo "Sweep transaction submitted: $SWEEP_TX_ID"
