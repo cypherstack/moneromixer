@@ -266,7 +266,7 @@ wait_for_unlocked_balance() {
                 break
             else
                 if [ "$ADDRESS_DISPLAYED" = false ]; then
-                    echo "No unlocked balance available. Waiting for funds to arrive and unlock."
+                    echo "No unlocked balance available.  Waiting for funds to arrive and unlock."
                     echo "Please send funds to the following address to continue:"
                     echo "$DEST_ADDRESS"
 
@@ -277,7 +277,18 @@ wait_for_unlocked_balance() {
 
                     ADDRESS_DISPLAYED=true
                 else
-                    echo "Still waiting for funds to arrive and unlock."
+                    if [ "$(echo "$BALANCE_INFO" | jq -r '.result.balance')" -eq 0 ]; then
+                        echo "Waiting for funds to arrive and unlock."
+                    else
+                        local BLOCKS_TO_UNLOCK
+                        BLOCKS_TO_UNLOCK=$(echo "$BALANCE_INFO" | jq -r '.result.blocks_to_unlock')
+
+                        if [ "$BLOCKS_TO_UNLOCK" -eq 0 ]; then
+                            echo "Incoming funds detected but tx still unconfirmed.  Waiting for tx to confirm."
+                        else
+                            echo "Incoming funds detected and are now confirmed.  Waiting for funds to unlock."
+                        fi
+                    fi
                 fi
                 sleep 60  # Wait before checking again.
                 # TODO: Make the wait time configurable or pseudo-random.
