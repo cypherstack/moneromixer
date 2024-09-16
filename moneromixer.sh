@@ -138,7 +138,7 @@ save_seed_file() {
         } >> "$SEED_FILE"
         echo "Seed information appended to $SEED_FILE"
     else
-        echo "Seed saving is disabled. Seed information will not be saved to a file."
+        echo "Seed saving is disabled.  Seed information will not be saved to a file."
     fi
 }
 
@@ -150,7 +150,7 @@ get_seed_info() {
     if [ -z "$line" ]; then
         if [ "$NUM_SESSIONS" -eq 0 ]; then
             # Loop back to the beginning of the seed file.
-            echo "Reached end of seed file. Looping back to the beginning."
+            echo "Reached end of seed file.  Looping back to the beginning."
             SEED_INDEX=1
             line=$(sed -n "${SEED_INDEX}p" "$SEED_FILE")
             if [ -z "$line" ]; then
@@ -380,13 +380,21 @@ wait_for_unlocked_balance() {
             local UNLOCKED_BALANCE
             UNLOCKED_BALANCE=$(echo "$BALANCE_INFO" | jq -r '.result.unlocked_balance')
 
+            local BALANCE
+            BALANCE=$(echo "$BALANCE_INFO" | jq -r '.result.balance')
+
             if [[ -n "$UNLOCKED_BALANCE" ]] && [[ "$UNLOCKED_BALANCE" =~ ^[0-9]+$ ]] && [ "$UNLOCKED_BALANCE" -gt 0 ]; then
                 echo "Unlocked balance available: $UNLOCKED_BALANCE"
                 break
             else
                 if [ "$ADDRESS_DISPLAYED" = false ]; then
-                    echo "No unlocked balance available.  Waiting for funds to arrive and unlock."
-                    echo "Please send funds to the following address to continue:"
+                    if [ "$UNLOCKED_BALANCE" -eq 0 ] && [ "$BALANCE" -eq 0 ]; then
+                        echo "No unlocked balance available.  Waiting for funds to arrive and unlock."
+                        echo "Please send funds to the following address to continue:"
+                    elif [ "$UNLOCKED_BALANCE" -eq 0 ] && [ "$BALANCE" -gt 0 ]; then
+                        echo "Waiting for funds to unlock."
+                        echo "You may send additional funds to:"
+                    fi
                     echo "$DEST_ADDRESS"
 
                     if [ "$GENERATE_QR" = true ]; then
@@ -638,7 +646,7 @@ run_session() {
             }' | jq -r '.result.tx_hash_list[]')
 
             if [ -z "$SWEEP_TX_ID" ]; then
-                echo "Failed to sweep funds. No transaction hash returned."
+                echo "Failed to sweep funds.  No transaction hash returned."
                 exit 1
             fi
         fi
@@ -672,7 +680,7 @@ integration_tests() {
     local version_response
     version_response=$(rpc_request false "get_version" '{}')
     if [ $? -ne 0 ]; then
-        echo "Failed: Unable to connect to RPC server or authenticate. Check your configuration."
+        echo "Failed: Unable to connect to RPC server or authenticate.  Check your configuration."
         failed_tests=$((failed_tests + 1))
     else
         # Extract and display the version information
@@ -826,7 +834,7 @@ integration_tests() {
     if [ $failed_tests -eq 0 ]; then
         echo -e "\nAll integration tests passed!"
     else
-        echo -e "\nSome integration tests failed. Exiting without entering the main workflow."
+        echo -e "\nSome integration tests failed.  Exiting without entering the main workflow."
         printf '%*s\n' 80 | tr ' ' '='
         exit 0
     fi
