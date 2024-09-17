@@ -27,7 +27,6 @@ RPC_USERNAME="username"          # [username] Your RPC username.  Used for RPC a
 RPC_PASSWORD="password"          # [password] Your RPC password.  Used for RPC authentication.
 DAEMON_ADDRESS="127.0.0.1:18081" # [address] The address of the Monero daemon.
 
-WALLET_DIR="./wallets"          # [directory] Path to the directory where wallets are stored.
 STATE_FILE="./state.log"        # [file] Path to the file where the churning process state is logged.
 SIM_STATE_FILE="./simstate.log" # [file] Path to a separate state file used in simulation mode.
 DEFAULT_PASSWORD="0"            # [password] Default wallet password.  Set to '0' to prompt for input.
