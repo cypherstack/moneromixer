@@ -25,7 +25,6 @@ RPC_PORT=18082                   # [port] The RPC port for the Monero wallet RPC
 RPC_HOST="127.0.0.1"             # [host] The hostname or IP address for the Monero wallet RPC.
 RPC_USERNAME="username"          # [username] Your RPC username.  Used for RPC authentication.
 RPC_PASSWORD="password"          # [password] Your RPC password.  Used for RPC authentication.
-DAEMON_ADDRESS="127.0.0.1:18081" # [address] The address of the Monero daemon.
 
 STATE_FILE="./state.log"        # [file] Path to the file where the churning process state is logged.
 SIM_STATE_FILE="./simstate.log" # [file] Path to a separate state file used in simulation mode.
