@@ -395,8 +395,16 @@ wait_for_unlocked_balance() {
                 break
             else
                 if [ "$ADDRESS_DISPLAYED" = false ]; then
-                    echo "No unlocked balance available. Waiting for funds to arrive and unlock."
-                    echo "Please send funds to the following address to continue:"
+                    # Check if there is locked balance.  If not, then show address:
+                    if [[ -n "$BALANCE" ]] && [[ "$BALANCE" =~ ^[0-9]+$ ]] && [ "$BALANCE" -eq 0 ]; then
+                        echo "No balance available. Waiting for funds to arrive and unlock."
+                        echo "Please send funds to the following address to continue:"
+                    else
+                        echo "Locked balance available: $BALANCE"
+                        echo "Please wait for the balance to unlock."
+                        echo "You can send additional funds to churn to:"
+                    fi
+
                     echo "$DEST_ADDRESS"
 
                     if [ "$GENERATE_QR" = true ]; then
