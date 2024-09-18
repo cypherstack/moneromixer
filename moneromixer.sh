@@ -439,8 +439,22 @@ perform_churning() {
     echo "Performing $num_rounds churning rounds."
 
     for ((i = 1; i <= num_rounds; i++)); do
-        local DEST_ADDRESS="$WALLET_ADDRESS"
-        echo "Churning round $i: Sending funds to self."
+        # Determine if this is the last round.
+        local is_last_round=false
+        if [ "$i" -eq "$num_rounds" ]; then
+            is_last_round=true
+        fi
+
+        local DEST_ADDRESS
+        if [ "$is_last_round" = true ]; then
+            # Find the next wallet address for the final round.
+            DEST_ADDRESS=$(grep -A1 "^$WALLET_NAME;" "$STATE_FILE" | tail -n 1 | cut -d ';' -f2)
+            echo "Last round: Sweeping funds to the next wallet: $DEST_ADDRESS"
+        else
+            # Send funds to self for churning.
+            DEST_ADDRESS="$WALLET_ADDRESS"
+            echo "Churning round $i: Sending funds to self."
+        fi
 
         local TX_ID
         if [ "$SIMULATE_WORKFLOW" = true ]; then
@@ -460,22 +474,18 @@ perform_churning() {
         fi
 
         echo "Transaction submitted: $TX_ID"
+
+        # If this was the last round, exit the loop.
+        if [ "$is_last_round" = true ]; then
+            break
+        fi
+
         local DELAY=$((RANDOM % (MAX_DELAY - MIN_DELAY + 1) + MIN_DELAY))
         echo "Waiting for $DELAY seconds before next round."
         sleep "$DELAY"
 
         update_wallet_state
     done
-
-    # Sweep funds to the next wallet after churning rounds are completed.
-    local next_wallet_address
-    next_wallet_address=$(grep -A1 "^$WALLET_NAME;" "$STATE_FILE" | tail -n 1 | cut -d ';' -f2)
-    if [ -n "$next_wallet_address" ]; then
-        echo "Sweeping funds to the next wallet: $next_wallet_address"
-        sweep_to_next_wallet "$next_wallet_address"
-    else
-        echo "No next wallet found for sweeping. Ending churning session."
-    fi
 }
 
 # Sweep to the next wallet.
