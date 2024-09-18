@@ -466,6 +466,16 @@ perform_churning() {
 
         update_wallet_state
     done
+
+    # Sweep funds to the next wallet after churning rounds are completed.
+    local next_wallet_address
+    next_wallet_address=$(grep -A1 "^$WALLET_NAME;" "$STATE_FILE" | tail -n 1 | cut -d ';' -f2)
+    if [ -n "$next_wallet_address" ]; then
+        echo "Sweeping funds to the next wallet: $next_wallet_address"
+        sweep_to_next_wallet "$next_wallet_address"
+    else
+        echo "No next wallet found for sweeping. Ending churning session."
+    fi
 }
 
 # Sweep to the next wallet.
