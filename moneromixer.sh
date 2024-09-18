@@ -74,22 +74,42 @@ while [[ $# -gt 0 ]]; do
             echo "Interactive mode: -i, --interactive"
             echo "You can also run the script with the -i or --interactive flag to enable interactive mode."
             echo "In interactive mode you can enter your own mnemonics and restore heights."
+            echo
+            echo "QR code generation: -q, --qr"
+            echo "You can enable QR code generation for addresses by using the -q or --qr flag."
+            echo "QR code generation requires the 'qrencode' package to be installed."
+            echo
+            echo "Simulation mode: -s, --simulate"
+            echo "You can run the script in simulation mode by using the -s or --simulate flag."
+            echo "In simulation mode, the script will simulate the workflow without making any RPC calls."
+            echo
+            echo "Integration tests: -t, --test"
+            echo "You can run integration tests by using the -t or --test flag."
+            echo "This will test RPC connectivity, wallet creation, opening, and other RPC calls."
+            echo
+            echo "Verbose mode: -v, --verbose"
+            echo "You can enable verbose mode by using the -v or --verbose flag."
+            echo "Verbose mode will print additional details for each RPC request."
             exit 1
-            ;;
-        -v|--verbose)
-            VERBOSE=true
-            shift # Remove the argument from processing.
             ;;
         -i|--interactive)
             INTERACTIVE_MODE=true
+            shift # Remove the argument from processing.
+            ;;
+        -q|--qr)
+            GENERATE_QR=true
+            shift
+            ;;
+        -s|--simulate)
+            SIMULATE_WORKFLOW=true
             shift
             ;;
         -t|--test)
             TEST_INTEGRATION=true
             shift
             ;;
-        -s|--simulate)
-            SIMULATE_WORKFLOW=true
+        -v|--verbose)
+            VERBOSE=true
             shift
             ;;
         *)
@@ -131,6 +151,14 @@ interactive_mode() {
         read -rp "Enter mnemonic (leave blank to finish): " mnemonic
         if [ -z "$mnemonic" ]; then
             break
+        fi
+
+        # Validate mnemonic length (should be 25 words).
+        local word_count
+        word_count=$(echo "$mnemonic" | wc -w)
+        if [ "$word_count" -ne 25 ]; then
+            echo "Error: Mnemonic must be exactly 25 words. You entered $word_count words."
+            exit 1
         fi
 
         # Prompt for restore height.
