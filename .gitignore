@@ -6,3 +6,5 @@ wallets/
 seeds.txt
 
 state.log
+
+simstate.log
