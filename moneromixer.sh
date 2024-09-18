@@ -226,7 +226,7 @@ generate_wallets_from_mnemonics() {
 prompt_for_password() {
     if [ "$DEFAULT_PASSWORD" = "0" ]; then
         while true; do
-            read -sp "Please enter the wallet password (leave empty for no password): " password
+            read -sp "Please enter password to use for wallets (leave empty for no password): " password
             echo
             read -sp "Please confirm the wallet password: " password_confirm
             echo
@@ -798,11 +798,11 @@ if [ "$TEST_INTEGRATION" = true ]; then
     integration_tests
 fi
 
-prompt_for_password
-
 if [ "$INTERACTIVE_MODE" = true ]; then
     interactive_mode
 fi
+
+prompt_for_password
 
 # Main workflow.
 session_count=0
