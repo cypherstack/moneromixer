@@ -30,7 +30,7 @@ STATE_FILE="./state.log"        # [file] Path to the file where the churning pro
 SIM_STATE_FILE="./simstate.log" # [file] Path to a separate state file used in simulation mode.
 DEFAULT_PASSWORD="0"            # [password] Default wallet password.  Set to '0' to prompt for input.
 SWEEP_ADDRESS=""                # [address] The address to which to sweep at the end of the workflow.
-GENERATE_QR=true                # [boolean] Gnerate QR codes for receiving funds?  Requires qrencode.
+GENERATE_QR=false               # [boolean] Generate QR codes for addresses?  Requires qrencode.
 SELF_RESTART=false              # [boolean] Loop the script after completion?
 
 MIN_ROUNDS=5                   # [rounds] Minimum number of churning rounds per session.

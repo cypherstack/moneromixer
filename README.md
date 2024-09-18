@@ -95,9 +95,6 @@ environment and preferences.
 
 ## Wallet management
   - Each session uses a different wallet.
-    - If `USE_SEED_FILE` is true, it restores wallets from a list of mnemonics.
-    - If `USE_SEED_FILE` is false, it creates new wallets.
-    - If `SAVE_SEEDS_TO_FILE` is true, it saves the mnemonics to a file.
   - Funds are swept to the next wallet at the end of each session or the sweep address on the last session.
 
 ## Passwords
