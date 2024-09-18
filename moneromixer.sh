@@ -461,12 +461,13 @@ wait_for_unlocked_balance() {
 # Perform churning operations.
 perform_churning() {
     open_wallet
-    wait_for_unlocked_balance
 
     local num_rounds=$((RANDOM % (MAX_ROUNDS - MIN_ROUNDS + 1) + MIN_ROUNDS))
     echo "Performing $num_rounds churning rounds."
 
     for ((i = 1; i <= num_rounds; i++)); do
+        wait_for_unlocked_balance
+
         # Determine if this is the last round.
         local is_last_round=false
         if [ "$i" -eq "$num_rounds" ]; then
@@ -812,7 +813,7 @@ while true; do
     # Check if load_wallet_state found any wallet with remaining rounds
     if [ $? -ne 0 ]; then
         if [ "$session_count" -ge "$NUM_SESSIONS" ]; then
-            echo "Maximum number of sessions ($NUM_SESSIONS) reached or no wallets with remaining rounds. Exiting."
+            echo "Maximum number of sessions ($NUM_SESSIONS) reached or no wallets with remaining rounds.  Exiting."
             break
         fi
 
@@ -829,3 +830,15 @@ while true; do
 done
 
 echo "All sessions completed."
+
+# After all sessions are completed, check if a final sweep is required.
+if [ -n "$SWEEP_ADDRESS" ]; then
+    echo "Preparing to sweep all remaining funds to final address: $final_address"
+
+    wait_for_unlocked_balance
+
+    echo "Sweeping remaining funds to final sweep address: $SWEEP_ADDRESS"
+    sweep_to_next_wallet "$SWEEP_ADDRESS"
+else
+    echo "No final sweep address provided.  Exiting."
+fi
