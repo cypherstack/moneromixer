@@ -477,9 +477,14 @@ perform_churning() {
 
         local DEST_ADDRESS
         if [ "$is_last_round" = true ]; then
-            # Find the next wallet address for the final round.
-            DEST_ADDRESS=$(grep -A1 "^$WALLET_NAME;" "$STATE_FILE" | tail -n 1 | cut -d ';' -f2)
-            echo "Last round: Sweeping funds to the next wallet: $DEST_ADDRESS"
+            # Find the next wallet address in the state file
+            DEST_ADDRESS=$(awk -F';' '$1 != "'$WALLET_NAME'" && $3 > 0 { print $2; exit }' "$STATE_FILE")
+            if [ -z "$DEST_ADDRESS" ]; then
+                echo "[ERROR] Could not find a valid next wallet address for the final sweep." >&2
+                handle_error "No valid destination address found for final sweep." "perform_churning"
+            else
+                echo "Last round: Sweeping funds to the next wallet: $DEST_ADDRESS"
+            fi
         else
             # Send funds to self for churning.
             DEST_ADDRESS="$WALLET_ADDRESS"
@@ -631,8 +636,13 @@ update_wallet_state() {
     fi
 
     # Check if the wallet is fully churned and log a message.
-    if [ "$found_wallet" = true ] && [ "$rounds_left" -eq 0 ]; then
-        echo "Wallet $WALLET_NAME has completed all churning rounds."
+    if [ -n "$rounds_left" ] && [ "$rounds_left" -eq "$rounds_left" ] 2>/dev/null; then
+        if [ "$found_wallet" = true ] && [ "$rounds_left" -eq 0 ]; then
+            echo "Wallet $WALLET_NAME has completed all churning rounds."
+        fi
+    else
+        echo "[ERROR] rounds_left is not a valid number: '$rounds_left'" >&2
+        rounds_left=0  # Default to 0 if invalid
     fi
 }
 
