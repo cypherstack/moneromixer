@@ -462,7 +462,8 @@ wait_for_unlocked_balance() {
 perform_churning() {
     open_wallet
 
-    local num_rounds=$((RANDOM % (MAX_ROUNDS - MIN_ROUNDS + 1) + MIN_ROUNDS))
+    # Use the number of remaining rounds from the state file.
+    local num_rounds="$ROUNDS_LEFT"
     echo "Performing $num_rounds churning rounds."
 
     for ((i = 1; i <= num_rounds; i++)); do
@@ -504,6 +505,9 @@ perform_churning() {
 
         echo "Transaction submitted: $TX_ID"
 
+        # Update the wallet state after each round.
+        update_wallet_state
+
         # If this was the last round, exit the loop.
         if [ "$is_last_round" = true ]; then
             break
@@ -512,8 +516,6 @@ perform_churning() {
         local DELAY=$((RANDOM % (MAX_DELAY - MIN_DELAY + 1) + MIN_DELAY))
         echo "Waiting for $DELAY seconds before next round."
         sleep "$DELAY"
-
-        update_wallet_state
     done
 }
 
@@ -604,11 +606,13 @@ load_wallet_state() {
 # Update wallet state in the state file.
 update_wallet_state() {
     local updated_file=""
+    local found_wallet=false
 
     # Check if the file exists and is readable.
     if [ -f "$STATE_FILE" ]; then
         while IFS=';' read -r wallet_name address rounds_left; do
             if [ -n "$wallet_name" ] && [ "$wallet_name" = "$WALLET_NAME" ]; then
+                found_wallet=true
                 # Only decrement if rounds_left is greater than zero
                 if [ "$rounds_left" -gt 0 ]; then
                     rounds_left=$((rounds_left - 1))
@@ -620,9 +624,15 @@ update_wallet_state() {
             fi
         done < "$STATE_FILE"
 
+        # Save the updated state back to the file.
         echo "$updated_file" > "$STATE_FILE"
     else
         echo "[ERROR] State file not found: $STATE_FILE" >&2
+    fi
+
+    # Check if the wallet is fully churned and log a message.
+    if [ "$found_wallet" = true ] && [ "$rounds_left" -eq 0 ]; then
+        echo "Wallet $WALLET_NAME has completed all churning rounds."
     fi
 }
 
