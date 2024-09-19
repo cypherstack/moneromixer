@@ -583,50 +583,43 @@ load_wallet_state() {
         fi
     done < "$STATE_FILE"
 
-    # If no wallets have remaining rounds, set found_wallet to false and exit the loop
+    # If no wallets have remaining rounds, set found_wallet to false and exit the loop.
     if [ "$found_wallet" = false ]; then
         echo "No wallets with remaining rounds found."
-        return 1  # Exit with a status code to indicate no wallets found
+        return 1  # Exit with a status code to indicate no wallets found.
     fi
 }
 
 # Update wallet state in the state file.
 update_wallet_state() {
-    local updated_file=""
+    local temp_file=$(mktemp)  # Temporary file to avoid directly modifying the state file.
     local found_wallet=false
+    local first_match=true  # Ensure we only update the first match.
 
-    # Check if the file exists and is readable.
-    if [ -f "$STATE_FILE" ]; then
-        while IFS=';' read -r wallet_name address rounds_left; do
-            if [ -n "$wallet_name" ] && [ "$wallet_name" = "$WALLET_NAME" ]; then
-                found_wallet=true
-                # Only decrement if rounds_left is greater than zero
-                if [[ "$rounds_left" =~ ^[0-9]+$ ]] && [ "$rounds_left" -gt 0 ]; then
-                    rounds_left=$((rounds_left - 1))
-                fi
+    # Read the state file and process each line
+    while IFS=';' read -r wallet_name address rounds_left; do
+        if [ "$wallet_name" = "$WALLET_NAME" ] && [ "$first_match" = true ]; then
+            found_wallet=true
+            first_match=false
+            # Decrement rounds_left if greater than zero
+            if [[ "$rounds_left" =~ ^[0-9]+$ ]] && [ "$rounds_left" -gt 0 ]; then
+                rounds_left=$((rounds_left - 1))
             fi
-            # Only add valid lines to the updated file content.
-            if [ -n "$wallet_name" ] && [ -n "$address" ]; then
-                updated_file+="$wallet_name;$address;$rounds_left"$'\n'
-            fi
-        done < "$STATE_FILE"
-
-        # Save the updated state back to the file.
-        echo "$updated_file" | sed '/^$/d' > "$STATE_FILE"
-    else
-        echo "[ERROR] State file not found: $STATE_FILE" >&2
-    fi
-
-    # Check if the wallet is fully churned and log a message.
-    if [[ "$found_wallet" = true ]] && [[ "$rounds_left" =~ ^[0-9]+$ ]]; then
-        if [ "$rounds_left" -eq 0 ]; then
-            echo "Wallet $WALLET_NAME has completed all churning rounds."
+            echo "Wallet $WALLET_NAME has $rounds_left rounds left."
         fi
-    else
-        echo "[ERROR] rounds_left is not a valid number: '$rounds_left'" >&2
-        rounds_left=0  # Default to 0 if invalid
+        # Write the original or updated line to the temporary file.
+        echo "$wallet_name;$address;$rounds_left" >> "$temp_file"
+    done < "$STATE_FILE"
+
+    # Replace the original state file with the updated one.
+    mv "$temp_file" "$STATE_FILE"
+
+    # Log an error if the wallet was not found.
+    if [ "$found_wallet" = false ]; then
+        echo "[ERROR] Wallet $WALLET_NAME not found in state file." >&2
     fi
 }
+
 
 # Integration tests function
 integration_tests() {
@@ -827,7 +820,7 @@ session_count=0
 while true; do
     load_wallet_state
 
-    # Check if load_wallet_state found any wallet with remaining rounds
+    # If no wallets with remaining rounds are found, check if a new session is needed.
     if [ $? -ne 0 ]; then
         if [ "$session_count" -ge "$NUM_SESSIONS" ]; then
             echo "Maximum number of sessions ($NUM_SESSIONS) reached or no wallets with remaining rounds.  Exiting."
@@ -841,6 +834,7 @@ while true; do
         continue
     fi
 
+    # Only churn if the wallet has remaining rounds.
     if [[ "$ROUNDS_LEFT" -gt 0 ]]; then
         perform_churning
     fi
