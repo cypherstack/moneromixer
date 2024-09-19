@@ -2,9 +2,10 @@
 
 # Monero Mixer
 #
-# A churning script. Requires `jq` and optionally `qrencode`. Uses the Monero wallet RPC to create,
-# restore, and churn wallets. Offers an optional interactive mode for manual input of mnemonics and
-# restore heights.
+# A churning script. Requires `jq` and optionally `qrencode`.  Uses the Monero 
+# wallet RPC to create, restore, and churn wallets. Offers an optional 
+# interactive mode for manual input of mnemonics and restore heights.  Wallet
+# names, addresses, and churning rounds left are tracked in the $STATE_FILE.
 #
 # Usage:
 # - Configure the script parameters below.
@@ -220,25 +221,6 @@ generate_wallets_from_mnemonics() {
         # Save to state file.
         echo "$wallet_name;$address;$MAX_ROUNDS" >> "$STATE_FILE"
     done
-}
-
-# Prompt for password if DEFAULT_PASSWORD is set to '0'.
-prompt_for_password() {
-    if [ "$DEFAULT_PASSWORD" = "0" ]; then
-        while true; do
-            read -sp "Please enter password to use for wallets (leave empty for no password): " password
-            echo
-            read -sp "Please confirm the wallet password: " password_confirm
-            echo
-
-            if [ "$password" = "$password_confirm" ]; then
-                DEFAULT_PASSWORD="$password"
-                break
-            else
-                echo "Passwords do not match. Please try again."
-            fi
-        done
-    fi
 }
 
 # Perform RPC requests with optional authentication.
@@ -823,7 +805,22 @@ if [ "$INTERACTIVE_MODE" = true ]; then
     interactive_mode
 fi
 
-prompt_for_password
+# Prompt for password if DEFAULT_PASSWORD is set to '0'.
+if [ "$DEFAULT_PASSWORD" = "0" ]; then
+    while true; do
+        read -sp "Please enter password to use for wallets (leave empty for no password): " password
+        echo
+        read -sp "Please confirm the wallet password: " password_confirm
+        echo
+
+        if [ "$password" = "$password_confirm" ]; then
+            DEFAULT_PASSWORD="$password"
+            break
+        else
+            echo "Passwords do not match. Please try again."
+        fi
+    done
+fi
 
 # Main workflow.
 session_count=0
