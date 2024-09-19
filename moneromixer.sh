@@ -619,7 +619,7 @@ update_wallet_state() {
             if [ -n "$wallet_name" ] && [ "$wallet_name" = "$WALLET_NAME" ]; then
                 found_wallet=true
                 # Only decrement if rounds_left is greater than zero
-                if [ "$rounds_left" -gt 0 ]; then
+                if [[ "$rounds_left" =~ ^[0-9]+$ ]] && [ "$rounds_left" -gt 0 ]; then
                     rounds_left=$((rounds_left - 1))
                 fi
             fi
@@ -630,14 +630,14 @@ update_wallet_state() {
         done < "$STATE_FILE"
 
         # Save the updated state back to the file.
-        echo "$updated_file" > "$STATE_FILE"
+        echo "$updated_file" | sed '/^$/d' > "$STATE_FILE"
     else
         echo "[ERROR] State file not found: $STATE_FILE" >&2
     fi
 
     # Check if the wallet is fully churned and log a message.
-    if [ -n "$rounds_left" ] && [ "$rounds_left" -eq "$rounds_left" ] 2>/dev/null; then
-        if [ "$found_wallet" = true ] && [ "$rounds_left" -eq 0 ]; then
+    if [[ "$found_wallet" = true ]] && [[ "$rounds_left" =~ ^[0-9]+$ ]]; then
+        if [ "$rounds_left" -eq 0 ]; then
             echo "Wallet $WALLET_NAME has completed all churning rounds."
         fi
     else
