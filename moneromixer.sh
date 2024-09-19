@@ -478,7 +478,7 @@ perform_churning() {
         local DEST_ADDRESS
         if [ "$is_last_round" = true ]; then
             # Find the next wallet address in the state file
-            DEST_ADDRESS=$(awk -F';' '$1 != "'$WALLET_NAME'" && $3 > 0 { print $2; exit }' "$STATE_FILE")
+            DEST_ADDRESS=$(awk -F';' '$1 != "'"$WALLET_NAME"'" && $3 > 0 { print $2; exit }' "$STATE_FILE")
             if [ -z "$DEST_ADDRESS" ]; then
                 echo "[ERROR] Could not find a valid next wallet address for the final sweep." >&2
                 handle_error "No valid destination address found for final sweep." "perform_churning"
