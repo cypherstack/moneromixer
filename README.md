@@ -5,9 +5,9 @@ A script to perform churning on Monero wallets using monero-wallet-rpc.
 # Getting started
 ## Install dependencies:
 
-  - Ensure you have `jq` installed for JSON parsing:
+  - Ensure you have `jq` and `curl` installed for JSON parsing:
     ```bash
-    sudo apt-get install jq
+    sudo apt-get install jq curl
     ```
 
   - (Optional) Install `qrencode` in order to generate QR codes:
