@@ -62,6 +62,13 @@ if [ "$GENERATE_QR" = true ] && ! command -v qrencode >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v curl >/dev/null 2>&1; then
+    echo "Error: 'curl' is not installed."
+    echo "Please install it by running:"
+    echo "sudo apt-get install curl"
+    exit 1
+fi
+
 # Parse command-line arguments.
 while [[ $# -gt 0 ]]; do
     case $1 in
