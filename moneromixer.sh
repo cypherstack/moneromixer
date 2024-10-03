@@ -126,6 +126,23 @@ if [ "$SIMULATE_WORKFLOW" = true ]; then
     STATE_FILE="$SIM_STATE_FILE"
 fi
 
+# Prompt for password if DEFAULT_PASSWORD is set to '0'.
+if [ "$DEFAULT_PASSWORD" = "0" ]; then
+    while true; do
+        read -sp "Please enter password to use for wallets (leave empty for no password): " password
+        echo
+        read -sp "Please confirm the wallet password: " password_confirm
+        echo
+
+        if [ "$password" = "$password_confirm" ]; then
+            DEFAULT_PASSWORD="$password"
+            break
+        else
+            echo "Passwords do not match. Please try again."
+        fi
+    done
+fi
+
 # Display the script introduction and overview.
 script_introduction() {
     echo "Monero Mixer v2"
@@ -796,23 +813,6 @@ fi
 
 if [ "$INTERACTIVE_MODE" = true ]; then
     interactive_mode
-fi
-
-# Prompt for password if DEFAULT_PASSWORD is set to '0'.
-if [ "$DEFAULT_PASSWORD" = "0" ]; then
-    while true; do
-        read -sp "Please enter password to use for wallets (leave empty for no password): " password
-        echo
-        read -sp "Please confirm the wallet password: " password_confirm
-        echo
-
-        if [ "$password" = "$password_confirm" ]; then
-            DEFAULT_PASSWORD="$password"
-            break
-        else
-            echo "Passwords do not match. Please try again."
-        fi
-    done
 fi
 
 # Main workflow.
