@@ -100,3 +100,8 @@ top to match your environment and preferences.
 - Use this script responsibly.  Excessive churning can contribute to network 
   load.
 - Ensure compliance with Monero's best practices and community guidelines.
+
+# Workflow simulation
+Workflow simulation is offered as a tool which disables RPC calls but simulates
+the workflow for debugging and development purposes.  Set `SIMULATE_WORKFLOW` 
+to `TRUE` to simulate the workflow.
